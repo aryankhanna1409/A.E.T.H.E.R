@@ -487,6 +487,10 @@ pre.out { white-space: pre-wrap; font: 12.5px/1.55 var(--mono); background: var(
   background: color-mix(in srgb, var(--accent) 22%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); font-size: 12px; white-space: nowrap; }
 .day-strip .ev b { font-weight: 550; overflow: hidden; text-overflow: ellipsis; }
 .day-strip .now { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--bad); border-radius: 2px; box-shadow: 0 0 8px var(--bad); }
+.item.mail { align-items: flex-start; }
+.mail-top { display: flex; gap: 8px; align-items: center; }
+.mail-top .muted { font-size: 12px; margin-left: auto; }
+.mail-snip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70ch; }
 .free-line { font-size: 12.5px; margin-bottom: 6px; }
 .sched-list .item { padding: 8px 0; }
 .tabs.small button { font-size: 12px; padding: 4px 10px; }

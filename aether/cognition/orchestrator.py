@@ -25,6 +25,7 @@ from ..llm.base import LLMProvider, LLMUnavailable, Message, structured
 from ..memory import extraction, lifecycle
 from ..metacognition import Metacognition
 from ..memory import calendar as cal
+from ..memory import mail as mailmod
 from ..memory.prospective import Reminders
 from ..memory.store import MemoryStore
 from ..neurosymbolic.csp import plan_tool
@@ -167,6 +168,15 @@ class Aether:
                                  {"title": "what", "when": "e.g. 'friday 3pm', 'tomorrow at 14:30'",
                                   "minutes": "length, default 60", "location": "optional"}, "calendar.write",
                                  self._add_event_tool))
+        self.mail = mailmod.Mailbox(cfg.mail.paths, cfg.mail.outlook, cfg.mail.drafts)
+        self.tools.register(Tool("inbox", "read the user's email already on this PC (read-only): recent mail, or search "
+                                 "by person or topic", {"query": "optional: who or what, e.g. 'riya' or 'internship'",
+                                                        "days": "how far back for recent mail, default 2"},
+                                 "mail.read", self._inbox_tool))
+        self.tools.register(Tool("draft_email", "write an email draft the user can open, edit and send themselves "
+                                 "(AETHER never sends mail)", {"to": "address", "subject": "subject",
+                                                               "body": "the full text of the email"},
+                                 "mail.draft", self._draft_tool))
         self.reminders = Reminders(self.db, self.lock)
         self.tools.register(Tool("remind", "set a reminder for the user",
                                  {"text": "what", "when": "e.g. tomorrow, friday, 2026-12-01"}, "memory",
@@ -232,6 +242,28 @@ class Aether:
         if clash:
             msg += " Heads up, it overlaps " + ", ".join(f"'{e.title}' ({e.when()})" for e in clash[:3]) + "."
         return msg
+
+    def _inbox_tool(self, query: str = "", days: str | int = 2) -> str:
+        if not self.mail.files() and not self.cfg.mail.outlook:
+            return (f"No mail connected yet. Put .eml files or an .mbox archive in {self.mail.paths[0]} "
+                    "(or turn on mail.outlook) and I'll read them from there. Nothing is fetched online.")
+        vip = set(self.cfg.mail.vip)
+        if query.strip():
+            return mailmod.describe(self.mail.search(query), f"about '{query.strip()}'", vip)
+        try:
+            d = max(0.1, min(60.0, float(str(days).split()[0])))
+        except ValueError:
+            d = 2.0
+        return mailmod.describe(self.mail.recent(d), f"in the last {d:g} day{'s' if d != 1 else ''}", vip)
+
+    def _draft_tool(self, to: str, subject: str, body: str) -> str:
+        if "@" not in to:
+            hits = self.mail.search(to, 1)
+            if not hits:
+                return f"I don't have an address for '{to}'. Tell me their email address."
+            to = hits[0].address
+        path = self.mail.draft(to.strip(), subject.strip()[:200], body.strip())
+        return f"Draft ready for {to}: {path}. Open it to review and press Send yourself; I never send email."
 
     def today_schedule(self, now: datetime | None = None) -> str:
         now = now or datetime.now()

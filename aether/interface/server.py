@@ -285,6 +285,14 @@ def create_app(config_path: str | None = None) -> FastAPI:
         aether.audit.record("calendar.write", f"{ev.title} @ {ev.start.isoformat()}", True, "added by you in the app")
         return {**ev.as_dict(), "clash": [e.as_dict() for e in clash]}
 
+    @app.get("/api/mail")
+    def mail(q: str = "", days: float = 3, limit: int = 12):
+        from ..memory.mail import is_vip
+        box, vip = aether.mail, set(aether.cfg.mail.vip)
+        items = box.search(q, limit) if q.strip() else box.recent(days, limit)
+        return {"items": [{**m.as_dict(), "vip": is_vip(m, vip)} for m in items], "files": len(box.files()),
+                "folder": str(box.paths[0]) if box.paths else "", "outlook": aether.cfg.mail.outlook}
+
     @app.get("/api/kg/history")
     def kg_history(entity: str | None = None, limit: int = 400):
         events = aether.kg.history(entity, limit)

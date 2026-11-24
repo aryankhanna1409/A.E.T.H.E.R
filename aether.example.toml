@@ -77,6 +77,12 @@ event_alert_minutes = 15         # "lecture in 15 minutes" (0 = off)
 evening_review = "20:00"         # what's still open + tomorrow's first event ("" = off)
 low_battery = 20                 # warn on battery at or below this percent (0 = off)
 
+[mail]
+# .eml files or .mbox archives already on this PC (Outlook: drag mail here; Thunderbird: its Mail folder; Gmail: Google Takeout).
+paths = ["~/Documents/AETHER/mail"]
+outlook = false                  # also read the Outlook desktop app's inbox (pip install pywin32)
+vip = []                         # e.g. ["riya", "rao@uni.example"]: new mail from them is a notification
+
 [calendar]
 # Export .ics files (Outlook: File > Save Calendar; Google Calendar: Settings > Import & export) into this folder.
 ics_paths = ["~/Documents/AETHER/calendar"]

@@ -53,6 +53,7 @@ def cfg(tmp_path):
     c.security.allowed_write_roots = [str(out.resolve())]
     c.security.network = False
     c.calendar.ics_paths = [str(tmp_path / "calendar")]
+    c.mail.paths = [str(tmp_path / "mail")]
     return c
 
 

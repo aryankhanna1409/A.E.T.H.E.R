@@ -449,10 +449,12 @@ RENDER.today = async (p) => {
       <div class="card"><h3>Goals</h3>${b.goals.map(g => `<div class="item"><div class="grow">${esc(g.text)}<div class="meta">#${g.id}</div></div><span class="chip ${g.status === "done" ? "good" : g.status === "failed" ? "bad" : "accent"}">${g.status}</span></div>`).join("") || `<div class="empty">No goals yet. Ask AETHER to work on something in the background.</div>`}</div>
       <div class="card"><h3>Self-improvement</h3>${waiting.map(x => `<div class="item"><div class="grow">${esc(x.title)}<div class="meta">${esc(x.rationale)}</div></div></div>`).join("") || `<div class="empty">Nothing waiting for your approval.</div>`}
         ${waiting.length ? `<button class="ghost" onclick="location.hash='self'">Review in Self</button>` : ""}</div>
+      <div class="card span2" id="inbox"></div>
       <div class="card span2" id="routines"></div>
     </div>`;
   Routines.render($("#routines", p));
   Schedule.render($("#sched", p));
+  Inbox.render($("#inbox", p));
   const rem = $("#rem", p);
   rem.innerHTML = b.reminders.map(r => `<div class="item"><div class="grow">${esc(r.text)}<div class="meta">due ${esc(r.due)}</div></div><div class="actions"><button class="ghost" data-r="${r.id}" data-s="done">Done</button><button class="icon-btn" data-r="${r.id}" data-s="dismissed" title="Dismiss">✕</button></div></div>`).join("") || `<div class="empty">Nothing due. Say "remind me to…" in chat or add one here.</div>`;
   $$("[data-r]", rem).forEach(x => x.onclick = async () => { await api(`/api/reminders/${x.dataset.r}?status=${x.dataset.s}`, { method: "POST" }); go("today"); });
@@ -498,6 +500,25 @@ const Schedule = {
       } catch (e) { toast("Couldn't add", e.message, "error"); }
       this.render(box, when);
     };
+  },
+};
+
+// Inbox: mail already on this PC (.eml / .mbox / Outlook), read-only. "Draft reply" asks AETHER in chat.
+const Inbox = {
+  async render(box, q = "") {
+    const m = await api(`/api/mail?days=3&q=${encodeURIComponent(q)}`);
+    const rows = m.items.map(x => `<div class="item mail"><div class="grow"><div class="mail-top">${x.vip ? `<span class="chip accent">★</span>` : ""}<b>${esc(x.sender)}</b><span class="muted">${ago(new Date(x.date).getTime() / 1000)}</span></div>
+        <div>${esc(x.subject || "(no subject)")}</div><div class="meta mail-snip">${esc(x.snippet.slice(0, 160))}</div></div>
+        <div class="actions"><button class="ghost" data-reply="${esc(x.id)}">Draft reply</button></div></div>`).join("");
+    box.innerHTML = `<h3><span class="grow">Inbox</span><input class="field" id="mail-q" placeholder="Search mail…" value="${esc(q)}" style="max-width:220px"></h3>
+      ${m.files || m.outlook ? rows || `<div class="empty">${q ? "No mail matches." : "No new mail in the last 3 days."}</div>`
+        : `<div class="empty">No mail connected. Put <b>.eml</b> files or an <b>.mbox</b> archive in <code>${esc(m.folder)}</code>, or turn on Outlook in settings. Read-only, and AETHER never sends mail.</div>`}`;
+    const input = $("#mail-q", box);
+    input.onkeydown = e => { if (e.key === "Enter") this.render(box, input.value.trim()); };
+    $$("[data-reply]", box).forEach(b => b.onclick = () => {
+      const x = m.items.find(i => i.id === b.dataset.reply);
+      go("chat"); Chat.t.value = `Draft a short reply to ${x.sender} <${x.address}> about "${x.subject}". Use the draft_email tool.`; Chat.send();
+    });
   },
 };
 

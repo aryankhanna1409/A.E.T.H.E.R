@@ -23,7 +23,8 @@ class Decision(str, Enum):
 RISK = {
     "fs.read": 1, "fs.list": 1, "fs.search": 1, "memory": 1, "kg": 1, "optimize": 1,
     "routine": 1, "calendar": 1,
-    "calendar.write": 2,  # only ever AETHER's own aether.ics; asks unless you auto-approve it  # running a routine is harmless by itself: every step inside it is checked on its own
+    "calendar.write": 2, "mail.read": 1,
+    "mail.draft": 3,  # writes an unsent draft file; AETHER can never send mail  # only ever AETHER's own aether.ics; asks unless you auto-approve it  # running a routine is harmless by itself: every step inside it is checked on its own
     "web.search": 2, "web.fetch": 2,
     "fs.create": 3, "fs.modify": 4, "app.open": 4, "autonomy": 3, "fs.move": 4,
     "fs.delete": 5, "shell": 5, "ui.automation": 5, "screen.observe": 4, "message.send": 5,

@@ -83,6 +83,7 @@ class ProactiveEngine:
             n += self._queue("brief", "Morning brief", self.brief(now), f"brief:{day}")
         n += self._calendar_triggers(now, day)
         n += self._battery_trigger(now, day)
+        n += self._mail_trigger(now)
         for g in self.a.graph.goals(50):
             if g["status"] in {"done", "failed", "cancelled"}:
                 n += self._queue("goal", f"Goal {g['status']}", g["text"][:200], f"goal:{g['id']}:{g['status']}")
@@ -133,6 +134,23 @@ class ProactiveEngine:
             lines.insert(0, "Everything due today is done. Nicely handled.")
         return "\n".join(lines)
 
+    def _mail_trigger(self, now: datetime) -> int:
+        """New mail from someone on the VIP list. Only the sender and subject are shown, never instructions from it."""
+        box, vip = getattr(self.a, "mail", None), set(self.a.cfg.mail.vip)
+        if box is None or not vip:
+            return 0
+        from ..memory.mail import is_vip
+        from ..security import injection
+        n = 0
+        try:
+            for m in box.all(now - timedelta(hours=12)):
+                if is_vip(m, vip) and m.date <= now:
+                    subject = "(subject hidden)" if injection.scan(m.subject) else m.subject
+                    n += self._queue("mail", f"Email from {m.sender}"[:120], subject[:200] or "(no subject)", f"mail:{m.id}")
+        except Exception:
+            log.exception("mail trigger failed")
+        return n
+
     def _battery_trigger(self, now: datetime, day: str) -> int:
         if self.cfg.low_battery <= 0:
             return 0
@@ -167,6 +185,15 @@ class ProactiveEngine:
             events = []
         if events:
             lines.append("On the calendar: " + "; ".join(f"{e.when()} {e.title}" for e in events[:6]))
+        box = getattr(self.a, "mail", None)
+        try:
+            recent = box.all(now - timedelta(days=1)) if box else []
+        except Exception:
+            recent = []
+        if recent:
+            from ..memory.mail import is_vip
+            vip = [m.sender for m in recent if is_vip(m, set(self.a.cfg.mail.vip))]
+            lines.append(f"Email: {len(recent)} in the last day" + (f", including {', '.join(dict.fromkeys(vip))}." if vip else "."))
         running = [g for g in self.a.graph.goals(20) if g["status"] in {"running", "pending"}]
         if running:
             lines.append("Still working on: " + "; ".join(g["text"][:60] for g in running))

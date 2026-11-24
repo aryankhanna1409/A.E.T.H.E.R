@@ -48,7 +48,7 @@ aether/
 desktop/           Tauri 2 shell
 installer/         Inno Setup script
 scripts/           Windows setup, model download, GPU tuning, benchmark, installer build
-tests/             151 tests, no model weights needed
+tests/             158 tests, no model weights needed
 ```
 
 ## Dependencies
@@ -91,10 +91,11 @@ tests/             151 tests, no model weights needed
 | 13 | See inside it | Done | Glass-box traces of every turn (stages, LLM calls, retrieval scores, proofs, verifier, prompt budget), counterfactual what-if engine with graph diff, belief time travel over the temporal KG, live mission-control goal graph, HUD voice mode driven by real audio |
 | 14 | Jarvis presence, part 1 | Done | Speaks while it thinks (sentence-streamed TTS in the voice loop and HUD), spoken-reply mode, Jarvis persona, routines (deterministic voice macros through the policy engine), look-at-screen with the local vision model, optional prompt-lookup speculative decoding, first-word latency in the benchmark |
 | 15 | Jarvis presence, part 2 | Done | Local calendar (.ics with RRULE/EXDATE/RECURRENCE-ID/time zones, optional Outlook COM, AETHER's own aether.ics for added events, free-slot finder), schedule in the prompt as untrusted data, Today schedule strip, event-soon / evening review / low-battery nudges, tray launcher with a global voice hotkey and start-with-Windows |
+| 16 | Local mail | Done | Read-only .eml / .mbox / Thunderbird / Outlook COM inbox, search, VIP notifications, inbox in the brief, unsent X-Unsent reply drafts (AETHER cannot send), mail and calendar output treated as untrusted (taint) |
 
 ## Known limits
 
-* Everything was built and unit-tested here with a scripted model double (151 tests). It has **not yet run against real GGUF weights, a microphone, a GPU or Windows APIs**; `aether-eval` and `scripts/bench.py` are the first real check on your PC.
+* Everything was built and unit-tested here with a scripted model double (158 tests). It has **not yet run against real GGUF weights, a microphone, a GPU or Windows APIs**; `aether-eval` and `scripts/bench.py` are the first real check on your PC.
 * Small local models follow instructions less reliably than large cloud models. The symbolic layer and code-side filters catch a lot of that, but answer quality still depends on the GGUF you choose.
 * The Tauri shell and the Inno Setup installer have not been compiled here.
 * The injection scanner is a tripwire; the policy engine and taint mode are the real guarantee.

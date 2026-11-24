@@ -74,6 +74,15 @@ class ProactiveConfig(BaseModel):
     low_battery: int = 20  # warn when on battery and at or below this percent (0 = off)
 
 
+class MailConfig(BaseModel):
+    # Folders of .eml files or .mbox archives already on this PC (Outlook: drag mail into the folder;
+    # Thunderbird: its profile's Mail folder; Gmail: Google Takeout). Read-only; nothing is fetched or sent.
+    paths: list[str] = Field(default_factory=lambda: [str(Path.home() / "Documents" / "AETHER" / "mail")])
+    outlook: bool = False  # also read the classic Outlook desktop app's inbox on this PC (needs pywin32)
+    drafts: str = ""  # where reply drafts go; empty = a "drafts" folder inside the first mail folder
+    vip: list[str] = Field(default_factory=list)  # names or addresses whose new mail is worth a notification
+
+
 class CalendarConfig(BaseModel):
     # Folders or .ics files exported from Outlook, Google Calendar, Apple Calendar, a timetable...
     # Read locally; nothing is synced online. Events AETHER adds go to aether.ics in the first folder.
@@ -146,6 +155,7 @@ class Config(BaseModel):
     vision: VisionConfig = Field(default_factory=VisionConfig)
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
     calendar: CalendarConfig = Field(default_factory=CalendarConfig)
+    mail: MailConfig = Field(default_factory=MailConfig)
     max_plan_steps: int = 8
 
     @property
