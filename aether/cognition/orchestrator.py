@@ -30,6 +30,9 @@ from ..neurosymbolic.rules import RuleEngine
 from ..neurosymbolic.verifier import check_answer, validate_ir
 from ..optimization.engine import optimize_schedule
 from ..personalization.preferences import PreferenceModel
+from ..research import pipeline as research
+from ..retrieval import citations
+from ..retrieval.watcher import FolderWatcher
 from ..tools.filesystem import filesystem_tools
 from ..tools.registry import Tool, ToolRegistry, ToolResult
 from ..tools.web import web_tools
@@ -69,7 +72,7 @@ class Reply:
 
 class Aether:
     def __init__(self, cfg: Config, llm: LLMProvider | None, embedder=None,
-                 confirm: Callable[[str], bool] = lambda _: False):
+                 confirm: Callable[[str], bool] = lambda _: False, reranker=None):
         self.cfg, self.llm = cfg, llm
         self.store = MemoryStore(cfg.db_path, embedder)
         self.db: sqlite3.Connection = self.store.db
@@ -101,7 +104,9 @@ class Aether:
                                  {"text": "what", "when": "e.g. tomorrow, friday, 2026-12-01"}, "memory",
                                  lambda text, when="tomorrow": "Reminder set for {0.due}: {0.text}".format(
                                      self.reminders.add(text, when))))
-        self.router = QueryRouter(cfg.memory, self.store, self.kg)
+        self.router = QueryRouter(cfg.memory, self.store, self.kg, reranker)
+        self.tools.register(Tool("research", "deep research: web + your documents, known vs new, cited brief",
+                                 {"question": "the research question"}, "web.search", self._research))
         self.turns_since_summary: dict[int, int] = {}
         try:
             lifecycle.decay(self.store, cfg.memory.episodic_keep_days)
@@ -193,6 +198,11 @@ class Aether:
                                            + "; ".join(check.contradictions)
                                            + ". Rewrite the answer so it is consistent with them.")],
                                   max_tokens=self.cfg.llm.max_reply_tokens, temperature=0.3)
+        web_n = sum(r.output.count("\nURL: ") for r in tool_results if r.tool == "web_search")
+        draft, fake = citations.validate(draft, {"web": web_n, "doc": len(plan.documents),
+                                                 "memory": len(plan.memories)})
+        if fake:
+            notices.append("Removed citations with no matching source: " + ", ".join(fake))
         answer = companion.ensure_resources(draft, signal)
         if signal.level != "crisis":
             answer = self.prefs.apply_filters(answer)
@@ -311,6 +321,21 @@ class Aether:
             ctx.append(r.as_context() if r.tool != "web_search" else
                        "<web>\n" + r.as_context() + "\n</web>")
         return "\n\n".join(parts), "\n\n".join(ctx)
+
+    def _research(self, question: str) -> str:
+        if self.llm is None:
+            raise LLMUnavailable("Research needs the local model.")
+        return research.run(self.llm, self.tools, self.store, question).render()
+
+    def watcher(self) -> FolderWatcher:
+        from pathlib import Path
+
+        from ..tools.filesystem import read_text_any
+        if not hasattr(self, "_watcher"):
+            self._watcher = FolderWatcher(
+                self.store, lambda p: self.policy.evaluate("fs.read", p).decision.value != "deny",
+                lambda p: read_text_any(Path(p)))
+        return self._watcher
 
     # ------------------------------------------------------------------ indexing
     def index_folder(self, folder: str, extract_facts: bool = False) -> str:

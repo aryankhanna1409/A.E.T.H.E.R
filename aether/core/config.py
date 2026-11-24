@@ -46,6 +46,8 @@ class MemoryConfig(BaseModel):
     rag_top_k: int = 6
     hybrid_alpha: float = 0.6  # weight of vector score vs BM25 in hybrid search
     dedupe_threshold: float = 0.92
+    reranker_model: str = ""  # e.g. "BAAI/bge-reranker-base" (CPU, ~1 GB RAM); empty = off
+    watch_interval_s: int = 300  # re-scan authorized folders this often (0 = off)
     episodic_keep_days: int = 365
 
 

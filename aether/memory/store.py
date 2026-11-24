@@ -105,6 +105,14 @@ class MemoryStore:
                 n += 1
         return n
 
+    def delete_document(self, source_path: str) -> int:
+        with self.lock:
+            cur = self.db.execute("DELETE FROM memories WHERE layer='document' AND json_extract(meta, '$.path')=?",
+                                  (source_path,))
+            self.db.commit()
+        self.index.invalidate()
+        return cur.rowcount
+
     def correct(self, memory_id: int, new_text: str) -> None:
         emb = self.embedder.embed([new_text])[0] if self.embedder else None
         with self.lock:

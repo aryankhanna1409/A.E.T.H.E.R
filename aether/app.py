@@ -21,4 +21,18 @@ def build(config_path: str | None = None, confirm: Callable[[str], bool] = lambd
         llm, problem = None, str(e)
         log.error("%s", e)
     embedder = load_embedder(cfg.embeddings)
-    return Aether(cfg, llm, embedder, confirm), problem
+    reranker = None
+    if cfg.memory.reranker_model:
+        from .retrieval.rerank import Reranker
+        reranker = Reranker(cfg.memory.reranker_model) or None
+        reranker = reranker if reranker.available else None
+    aether = Aether(cfg, llm, embedder, confirm, reranker)
+    if cfg.memory.watch_interval_s > 0 and cfg.security.allowed_read_roots:
+        w = aether.watcher()
+        for folder in cfg.security.allowed_read_roots:
+            try:
+                w.scan(folder)
+            except FileNotFoundError:
+                log.warning("Authorized folder %s does not exist yet.", folder)
+        w.watch(cfg.security.allowed_read_roots, cfg.memory.watch_interval_s)
+    return aether, problem

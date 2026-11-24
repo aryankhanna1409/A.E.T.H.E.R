@@ -23,8 +23,8 @@ class RoutePlan:
 
 
 class QueryRouter:
-    def __init__(self, cfg: MemoryConfig, store: MemoryStore, kg: KnowledgeGraph):
-        self.cfg, self.store, self.kg = cfg, store, kg
+    def __init__(self, cfg: MemoryConfig, store: MemoryStore, kg: KnowledgeGraph, reranker=None):
+        self.cfg, self.store, self.kg, self.reranker = cfg, store, kg, reranker
 
     def plan(self, ir: IntentIR, message: str) -> RoutePlan:
         plan = RoutePlan()
@@ -55,8 +55,11 @@ class QueryRouter:
 
         if "documents" in needs and self.store.count("document"):
             plan.routes.append("documents")
-            plan.documents = self.store.search(message, k=self.cfg.rag_top_k, alpha=self.cfg.hybrid_alpha,
+            wide = self.cfg.rag_top_k * (3 if self.reranker else 1)
+            plan.documents = self.store.search(message, k=wide, alpha=self.cfg.hybrid_alpha,
                                                layers=("document",), min_score=self.cfg.rag_min_score)
+            if self.reranker:
+                plan.documents = self.reranker.rerank(message, plan.documents, top_k=self.cfg.rag_top_k)
             plan.reasons.append(f"documents: {len(plan.documents)} chunks")
 
         if "symbolic" in needs:
