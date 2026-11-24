@@ -18,6 +18,10 @@ HELP = """Commands:
   /index FOLDER          index an authorized folder for RAG
   /state                 show the last cognitive state  /audit   recent activity log
   /optimize TASKS        e.g. /optimize essay:3:5:Wed; gym:1:3:Sun; slides:2:4:Fri
+  /pareto TASKS          trade-off options for the week (NSGA-II), same format as /optimize
+  /eval add MSG => TEXT  add a retrieval eval case (TEXT = memory that should come back; empty = nothing)
+  /eval                  list eval cases       /tune   tune retrieval on them (asks before applying)
+  /settings              learned setting overrides       /settings revert SECTION.KEY
   /ask PATTERN           logic query, e.g. /ask parent_of(?p, riya)
   /plan TASKS            exact planner, e.g. /plan essay:3:2; slides:2:4:essay
   /research QUESTION     cited research brief (web + your documents)
@@ -118,6 +122,33 @@ def command(a, text: str, last_state) -> str:
                          for e in a.audit.tail(20)) or "Empty."
     if cmd == "/optimize":
         return a.tools.call("optimize_schedule", {"tasks": text[len("/optimize"):].strip()}).output
+    if cmd == "/pareto":
+        return a.tools.call("pareto_schedule", {"tasks": text[len("/pareto"):].strip()}).output
+    if cmd == "/eval":
+        rest = text[len("/eval"):].strip()
+        if rest.startswith("add "):
+            q, _, e = rest[4:].partition("=>")
+            return f"Eval case #{a.evals.add(q, e)} added."
+        if rest.startswith("del "):
+            a.evals.remove(int(rest[4:]))
+            return "Removed."
+        return "\n".join(f"#{c['id']} {c['query']} => {c['expect'] or '(nothing)'}" for c in a.evals.rows()) or "No eval cases."
+    if cmd == "/tune":
+        from ..optimization.tuning import describe
+        try:
+            r = a.tune_retrieval()
+        except ValueError as e:
+            return str(e)
+        print(describe(r))
+        if r["worth_applying"] and ask("Apply the proposed retrieval settings?"):
+            return "\n".join(a.settings.apply("memory", r["proposed"], f"PSO tuning F1 {r['f1_before']}->{r['f1_after']}"))
+        return "Settings unchanged."
+    if cmd == "/settings":
+        if len(parts) > 2 and parts[1] == "revert":
+            sec, _, key = parts[2].partition(".")
+            return a.settings.revert(sec, key)
+        return "\n".join(f"{o['section']}.{o['key']} = {o['value']} (was {o['previous']}; {o['reason']})"
+                         for o in a.settings.list()) or "No learned overrides; aether.toml values are in use."
     if cmd == "/ask":
         return "\n".join(str(b) for b in a.rules.ask(text[4:].strip())) or "No matches."
     if cmd == "/plan":

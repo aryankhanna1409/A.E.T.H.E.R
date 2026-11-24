@@ -30,6 +30,9 @@ from ..neurosymbolic.kg import KnowledgeGraph
 from ..neurosymbolic.policy import PolicyEngine
 from ..neurosymbolic.rules import RuleEngine
 from ..neurosymbolic.verifier import check_answer, validate_ir
+from ..core.settings import SettingsStore
+from ..optimization import tuning
+from ..optimization.advanced import pareto_schedule
 from ..optimization.engine import optimize_schedule
 from ..perception.vision import Vision
 from ..personalization.observations import Observations
@@ -82,6 +85,8 @@ class Aether:
         self.store = MemoryStore(cfg.db_path, embedder)
         self.db: sqlite3.Connection = self.store.db
         self.lock: threading.Lock = self.store.lock
+        self.settings = SettingsStore(self.db, self.lock, cfg)
+        self.evals = tuning.EvalSet(self.db, self.lock)
         self.kg = KnowledgeGraph(self.db, self.lock)
         self.rules = RuleEngine(self.kg)
         self.prefs = PreferenceModel(self.db, self.lock)
@@ -97,6 +102,10 @@ class Aether:
                                  {"tasks": "'name:hours:priority(1-5):deadline_day(Mon..Sun); ...'",
                                   "hours_per_day": "7 comma-separated numbers, Mon..Sun"},
                                  "optimize", optimize_schedule))
+        self.tools.register(Tool("pareto_schedule",
+                                 "multi-objective week plan (NSGA-II): shows trade-off options instead of one answer",
+                                 {"tasks": "same format as optimize_schedule", "hours_per_day": "7 numbers, Mon..Sun"},
+                                 "optimize", pareto_schedule))
         self.tools.register(Tool("remember", "save a fact or note the user asked to keep",
                                  {"text": "what to remember"}, "memory",
                                  lambda text: f"Saved memory #{self.store.add(text, 'semantic', 'user_stated', 0.95)}."))
@@ -361,6 +370,10 @@ class Aether:
         return self._watcher
 
     # ------------------------------------------------------------------ indexing
+    def tune_retrieval(self) -> dict:
+        """PSO over retrieval settings on the eval set. Returns a proposal; nothing changes yet."""
+        return tuning.tune_retrieval(self.store, self.cfg.memory, self.evals.all())
+
     def index_folder(self, folder: str, extract_facts: bool = False) -> str:
         from pathlib import Path
 

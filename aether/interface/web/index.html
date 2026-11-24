@@ -68,7 +68,7 @@
   <nav>
     <button data-tab="mind" class="active">Mind</button><button data-tab="prefs">Preferences</button>
     <button data-tab="memory">Memory</button><button data-tab="facts">Facts</button>
-    <button data-tab="goals">Goals</button><button data-tab="patterns">Patterns</button><button data-tab="activity">Activity</button>
+    <button data-tab="goals">Goals</button><button data-tab="patterns">Patterns</button><button data-tab="lab">Lab</button><button data-tab="activity">Activity</button>
   </nav>
   <div id="panel"></div>
 </aside>
@@ -158,6 +158,33 @@ async function render() {
       (os.map(o => `<div class="row"><div class="grow">${esc(o.text)}<div class="tag">${o.status} · conf ${o.confidence.toFixed(2)} · ${esc(o.evidence.slice(-1)[0] || "")}</div></div>
         ${o.status !== "confirmed" ? `<button data-o="${o.id}" data-s="confirmed">Confirm</button>` : ""}${o.status !== "rejected" ? `<button data-o="${o.id}" data-s="rejected">Reject</button>` : ""}<button data-o="${o.id}" data-s="delete">Delete</button></div>`).join("") || '<p class="tag">Nothing noticed yet.</p>');
     p.querySelectorAll("button[data-o]").forEach(b => b.onclick = async () => { await api(`/api/observations/${b.dataset.o}?status=${b.dataset.s}`, {method: "POST"}); render(); });
+  } else if (tab === "lab") {
+    const inp = 'style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);padding:6px;margin:4px 0"';
+    const [cases, overrides] = await Promise.all([api("/api/eval"), api("/api/settings")]);
+    p.innerHTML = `<h4>Optimization workspace</h4>
+      <textarea id="ot" ${inp} rows="3" placeholder="essay:3:5:Wed; gym:1:3:Sun; slides:2:4:Fri"></textarea>
+      <input id="oh" ${inp} value="4,4,4,4,4,6,6" title="hours per day, Mon..Sun">
+      <select id="oa" ${inp}><option value="auto">GA vs annealing (best plan)</option><option value="pareto">NSGA-II (trade-off options)</option>
+      <option value="tabu">Tabu search</option><option value="exact">Exact solver (name:hours:day[:after])</option></select>
+      <button id="orun">Optimize</button><pre id="oout" style="white-space:pre-wrap"></pre>
+      <h4>Retrieval eval set</h4>
+      <input id="eq" ${inp} placeholder="a message, e.g. why does my flask app crash"><input id="ee" ${inp} placeholder="memory text that should come back (empty = nothing)">
+      <button id="eadd">Add case</button> <button id="tune">Tune retrieval</button><pre id="tout" style="white-space:pre-wrap"></pre>`
+      + cases.map(c => `<div class="row"><div class="grow">${esc(c.query)}<div class="tag">expect: ${esc(c.expect || "nothing")}</div></div><button data-e="${c.id}">Remove</button></div>`).join("")
+      + `<h4>Learned settings</h4>` + (overrides.map(o => `<div class="row"><div class="grow">${esc(o.section)}.${esc(o.key)} = ${esc(o.value)}<div class="tag">was ${esc(o.previous)} · ${esc(o.reason)}</div></div><button data-rs="${esc(o.section)}" data-rk="${esc(o.key)}">Revert</button></div>`).join("") || '<div class="tag">none; aether.toml values are in use</div>');
+    $("#orun").onclick = async () => { $("#oout").textContent = "running...";
+      const r = await api("/api/optimize", {method: "POST", body: JSON.stringify({tasks: $("#ot").value, hours_per_day: $("#oh").value, algorithm: $("#oa").value})});
+      $("#oout").textContent = r.text; };
+    $("#eadd").onclick = async () => { await api("/api/eval", {method: "POST", body: JSON.stringify({query: $("#eq").value, expect: $("#ee").value})}); render(); };
+    $("#tune").onclick = async () => { $("#tout").textContent = "tuning...";
+      try { const r = await api("/api/tune", {method: "POST"});
+        $("#tout").textContent = `F1 ${r.f1_before} -> ${r.f1_after} on ${r.cases} cases\nproposed ${JSON.stringify(r.proposed)}`;
+        if (r.worth_applying && confirm("Apply the proposed retrieval settings?")) {
+          await api("/api/settings", {method: "POST", body: JSON.stringify({section: "memory", values: r.proposed, reason: `PSO tuning F1 ${r.f1_before}->${r.f1_after}`})}); render(); }
+      } catch (e) { $("#tout").textContent = e.message; } };
+    p.querySelectorAll("button[data-e]").forEach(b => b.onclick = async () => { await api("/api/eval/" + b.dataset.e, {method: "DELETE"}); render(); });
+    p.querySelectorAll("button[data-rs]").forEach(b => b.onclick = async () => {
+      await api(`/api/settings/revert?section=${b.dataset.rs}&key=${b.dataset.rk}`, {method: "POST"}); render(); });
   } else {
     const a = await api("/api/audit"), j = await api("/api/journal");
     p.innerHTML = '<div class="row"><div class="grow"><h4 style="margin:0">File changes</h4></div><button id="undo">Undo last</button></div>' +

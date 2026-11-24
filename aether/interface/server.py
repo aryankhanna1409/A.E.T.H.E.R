@@ -59,6 +59,27 @@ class PrefEdit(BaseModel):
     value: str = ""
 
 
+class Text(BaseModel):
+    text: str
+
+
+class OptimizeIn(BaseModel):
+    tasks: str
+    hours_per_day: str = "4,4,4,4,4,6,6"
+    algorithm: str = "auto"  # auto (GA vs SA) | pareto (NSGA-II) | tabu | exact (CSP)
+
+
+class EvalIn(BaseModel):
+    query: str
+    expect: str = ""
+
+
+class SettingsIn(BaseModel):
+    section: str
+    values: dict
+    reason: str = "approved in UI"
+
+
 def create_app(config_path: str | None = None) -> FastAPI:
     pending = Pending()
     aether, problem = build(config_path, confirm=pending.ask)
@@ -144,8 +165,6 @@ def create_app(config_path: str | None = None) -> FastAPI:
         return list(reversed(aether.audit.tail(100)))
 
     # ---------------------------------------------------------------- Phase 2-7 APIs
-    class Text(BaseModel):
-        text: str
 
     @app.get("/api/reminders")
     def reminders():
@@ -243,6 +262,60 @@ def create_app(config_path: str | None = None) -> FastAPI:
     def research(body: Text):  # sync: worker thread
         r = aether.tools.call("research", {"question": body.text})
         return {"ok": r.ok, "text": r.output}
+
+    # ---------------------------------------------------------------- Phase 9: optimization workspace
+
+    @app.post("/api/optimize")
+    def optimize(body: OptimizeIn):
+        from ..optimization import engine
+        from ..optimization.advanced import assignment_neighbours, tabu_search
+        if body.algorithm == "pareto":
+            r = aether.tools.call("pareto_schedule", {"tasks": body.tasks, "hours_per_day": body.hours_per_day})
+        elif body.algorithm == "tabu":
+            prob = engine.schedule_problem(engine.parse_tasks(body.tasks), [float(x) for x in body.hours_per_day.split(",")])
+            return {"ok": True, "text": tabu_search(prob, assignment_neighbours(7)).report(prob)}
+        elif body.algorithm == "exact":
+            r = aether.tools.call("solve_plan", {"tasks": body.tasks, "hours_per_day": body.hours_per_day})
+        else:
+            r = aether.tools.call("optimize_schedule", {"tasks": body.tasks, "hours_per_day": body.hours_per_day})
+        return {"ok": r.ok, "text": r.output}
+
+
+    @app.get("/api/eval")
+    def eval_cases():
+        return aether.evals.rows()
+
+    @app.post("/api/eval")
+    def eval_add(body: EvalIn):
+        return {"id": aether.evals.add(body.query, body.expect)}
+
+    @app.delete("/api/eval/{cid}")
+    def eval_del(cid: int):
+        aether.evals.remove(cid)
+        return {"ok": True}
+
+    @app.post("/api/tune")
+    def tune():
+        try:
+            return aether.tune_retrieval()
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+
+    @app.get("/api/settings")
+    def settings_list():
+        return aether.settings.list()
+
+    @app.post("/api/settings")
+    def settings_apply(body: SettingsIn):
+        try:
+            return {"changed": aether.settings.apply(body.section, body.values, body.reason)}
+        except PermissionError as e:
+            raise HTTPException(403, str(e))
+
+    @app.post("/api/settings/revert")
+    def settings_revert(section: str, key: str):
+        return {"message": aether.settings.revert(section, key)}
 
     from fastapi import File, Form, UploadFile
 
