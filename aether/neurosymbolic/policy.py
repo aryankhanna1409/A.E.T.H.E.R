@@ -23,7 +23,7 @@ class Decision(str, Enum):
 RISK = {
     "fs.read": 1, "fs.list": 1, "fs.search": 1, "memory": 1, "kg": 1, "optimize": 1,
     "web.search": 2, "web.fetch": 2,
-    "fs.create": 3, "fs.modify": 4, "app.open": 4,
+    "fs.create": 3, "fs.modify": 4, "app.open": 4, "autonomy": 3, "fs.move": 4,
     "fs.delete": 5, "shell": 5, "ui.automation": 5, "screen.observe": 4, "message.send": 5,
 }
 ALWAYS_CONFIRM = {"fs.delete", "shell", "ui.automation", "message.send", "fs.modify"}

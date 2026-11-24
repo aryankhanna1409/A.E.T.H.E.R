@@ -17,6 +17,8 @@ from typing import Callable
 from pydantic import BaseModel, Field
 
 from ..core.config import Config
+from ..agents.executive import Executive, GoalRunner
+from ..agents.taskgraph import TaskGraph
 from ..core.logging import AuditLog, log
 from ..llm.base import LLMProvider, LLMUnavailable, Message, structured
 from ..memory import extraction, lifecycle
@@ -108,6 +110,14 @@ class Aether:
         self.tools.register(Tool("research", "deep research: web + your documents, known vs new, cited brief",
                                  {"question": "the research question"}, "web.search", self._research))
         self.turns_since_summary: dict[int, int] = {}
+        self.graph = TaskGraph(self.db, self.lock)
+        self.progress_log: list[str] = []
+        self.executive = Executive(llm, self.tools, self.store, self.rules, self.graph,
+                                   progress=lambda m: self.progress_log.append(m)) if llm else None
+        self.goals = GoalRunner(self.executive) if self.executive else None
+        self.tools.register(Tool("start_goal", "start a multi-step autonomous task in the background (asks first)",
+                                 {"goal": "the objective, with any constraints"}, "autonomy",
+                                 lambda goal: self.goals.submit(goal) if self.goals else "No model loaded."))
         try:
             lifecycle.decay(self.store, cfg.memory.episodic_keep_days)
         except Exception as e:  # never block startup on maintenance
