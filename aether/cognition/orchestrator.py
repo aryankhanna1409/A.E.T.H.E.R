@@ -22,6 +22,8 @@ from ..llm.base import LLMProvider, LLMUnavailable, Message, structured
 from ..memory import extraction, lifecycle
 from ..memory.prospective import Reminders
 from ..memory.store import MemoryStore
+from ..neurosymbolic.csp import plan_tool
+from ..neurosymbolic.doc_facts import extract_document_facts
 from ..neurosymbolic.kg import KnowledgeGraph
 from ..neurosymbolic.policy import PolicyEngine
 from ..neurosymbolic.rules import RuleEngine
@@ -88,6 +90,12 @@ class Aether:
         self.tools.register(Tool("remember", "save a fact or note the user asked to keep",
                                  {"text": "what to remember"}, "memory",
                                  lambda text: f"Saved memory #{self.store.add(text, 'semantic', 'user_stated', 0.95)}."))
+        self.tools.register(Tool("solve_plan", "exact constraint solver: tasks with deadlines and dependencies",
+                                 {"tasks": "'name:hours:deadline_day(1-based)[:after_task,...]; ...'",
+                                  "hours_per_day": "comma-separated hours for each day"}, "optimize", plan_tool))
+        self.tools.register(Tool("kg_query", "query known facts with logic, e.g. parent_of(?p, riya)",
+                                 {"pattern": "predicate(subject, object) & ..."}, "kg",
+                                 lambda pattern: "\n".join(str(b) for b in self.rules.ask(pattern)) or "No matches."))
         self.reminders = Reminders(self.db, self.lock)
         self.tools.register(Tool("remind", "set a reminder for the user",
                                  {"text": "what", "when": "e.g. tomorrow, friday, 2026-12-01"}, "memory",
@@ -305,22 +313,33 @@ class Aether:
         return "\n\n".join(parts), "\n\n".join(ctx)
 
     # ------------------------------------------------------------------ indexing
-    def index_folder(self, folder: str) -> str:
+    def index_folder(self, folder: str, extract_facts: bool = False) -> str:
         from pathlib import Path
 
         from ..tools.filesystem import TEXT_EXT, read_text_any
         verdict = self.policy.evaluate("fs.read", folder)
         if verdict.decision.value == "deny":
             return f"Cannot index: {verdict.reason}"
-        n_files = n_chunks = 0
+        n_files = n_chunks = n_facts = 0
+        doc_conflicts: list[str] = []
         for p in Path(folder).expanduser().resolve().rglob("*"):
             if p.is_file() and (p.suffix.lower() in TEXT_EXT | {".pdf", ".docx"}):
                 if self.policy.evaluate("fs.read", str(p)).decision.value == "deny":
                     continue
                 try:
-                    n_chunks += self.store.add_document(read_text_any(p), str(p))
+                    text = read_text_any(p)
+                    n_chunks += self.store.add_document(text, str(p))
                     n_files += 1
+                    if extract_facts and self.llm is not None:
+                        added, conflicts = extract_document_facts(self.llm, self.kg, text, str(p))
+                        n_facts += added
+                        doc_conflicts += conflicts
                 except Exception as e:
                     log.warning("skip %s: %s", p, e)
         self.audit.record("fs.read", folder, True, f"indexed {n_files} files")
-        return f"Indexed {n_files} files into {n_chunks} chunks."
+        msg = f"Indexed {n_files} files into {n_chunks} chunks."
+        if extract_facts:
+            msg += f" Added {n_facts} facts to the knowledge graph."
+            if doc_conflicts:
+                msg += " Conflicts: " + "; ".join(doc_conflicts[:5])
+        return msg

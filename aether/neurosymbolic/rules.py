@@ -78,9 +78,47 @@ class RuleEngine:
         self.kg = kg
         self.rules = [parse_rule(r) for r in (rules or DEFAULT_RULES)]
         self.proofs: dict[tuple[str, str, str], Derivation] = {}
+        with kg.lock:
+            kg.db.execute("CREATE TABLE IF NOT EXISTS rules (text TEXT PRIMARY KEY)")
+            kg.db.commit()
+        for (text,) in kg.db.execute("SELECT text FROM rules").fetchall():
+            try:
+                self.rules.append(parse_rule(text))
+            except ValueError:
+                pass
 
-    def add_rule(self, text: str) -> None:
-        self.rules.append(parse_rule(text))
+    def add_rule(self, text: str, persist: bool = True) -> None:
+        rule = parse_rule(text)  # validates before storing
+        self.rules.append(rule)
+        if persist:
+            with self.kg.lock:
+                self.kg.db.execute("INSERT OR IGNORE INTO rules(text) VALUES (?)", (rule.text,))
+                self.kg.db.commit()
+
+    def remove_rule(self, text: str) -> None:
+        self.rules = [r for r in self.rules if r.text != text.strip()]
+        with self.kg.lock:
+            self.kg.db.execute("DELETE FROM rules WHERE text=?", (text.strip(),))
+            self.kg.db.commit()
+
+    def user_rules(self) -> list[str]:
+        return [r[0] for r in self.kg.db.execute("SELECT text FROM rules").fetchall()]
+
+    def ask(self, pattern: str) -> list[dict[str, str]]:
+        """First-order query over stated + derived facts, e.g. 'parent_of(?p, riya)'
+        or 'works_in(?x, ?c) & likes(?x, jazz)'. Returns variable bindings."""
+        atoms = [Atom(m.group(2), m.group(3).strip().lower(), m.group(4).strip().lower()) for m in ATOM.finditer(pattern)]
+        if not atoms:
+            raise ValueError("Query must look like predicate(subject, object)")
+        self.run(persist=False)
+        facts = self._facts() | set(self.proofs)
+        seen, out = set(), []
+        for binding, _ in self._match(atoms, facts, {}, []):
+            key = tuple(sorted(binding.items()))
+            if key not in seen:
+                seen.add(key)
+                out.append(binding)
+        return out
 
     def _facts(self) -> set[tuple[str, str, str]]:
         facts = {t.key() for t in self.kg.all()}
