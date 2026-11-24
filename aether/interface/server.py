@@ -8,17 +8,19 @@ from __future__ import annotations
 
 import argparse
 import threading
+import time
 import uuid
 import webbrowser
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..app import build
 from ..core.logging import setup_logging
+from ..neurosymbolic.rules import RuleEngine
 
 WEB = Path(__file__).parent / "web"
 
@@ -198,9 +200,14 @@ def create_app(config_path: str | None = None) -> FastAPI:
         }
 
     @app.get("/api/graph")
-    def graph():
-        triples = aether.kg.all()
-        derived, _ = aether.rules.run(persist=False)
+    def graph(at: float | None = None):
+        if at is None:
+            triples = aether.kg.all()
+            derived, _ = aether.rules.run(persist=False)
+        else:  # time travel: what AETHER believed at `at`, with the rules re-run over that belief state
+            past = aether.kg.snapshot_at(at)
+            triples = past.all()
+            derived, _ = RuleEngine(past, [r.text for r in aether.rules.rules]).run(persist=False)
         nodes, links = {}, []
         edges = [(t.s, t.p, t.o, "fact", t.id) for t in triples]
         edges += [(*d.triple, "derived", None) for d in derived[:200]]
@@ -210,6 +217,30 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 nodes[n]["degree"] += 1
             links.append({"source": s_, "target": o_, "label": p_, "kind": kind, "id": tid})
         return {"nodes": list(nodes.values()), "links": links}
+
+    @app.get("/api/kg/history")
+    def kg_history(entity: str | None = None, limit: int = 400):
+        events = aether.kg.history(entity, limit)
+        return {"events": events, "first": events[0]["learned"] if events else None, "now": time.time()}
+
+    @app.post("/api/whatif")
+    def whatif(body: Text):
+        try:
+            r = aether.what_if(body.text)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return {**r.__dict__, "text": r.render()}
+
+    @app.get("/api/traces")
+    def traces(limit: int = 30):
+        return aether.traces.recent(limit)
+
+    @app.get("/api/traces/{turn_id}")
+    def trace(turn_id: int):
+        t = aether.traces.get(turn_id)
+        if not t:
+            raise HTTPException(404, "No trace for that turn.")
+        return t
 
     @app.get("/api/brief")
     def brief():
@@ -482,7 +513,6 @@ def create_app(config_path: str | None = None) -> FastAPI:
         aether.proactive.dismiss(nid)
         return {"ok": True}
 
-    from fastapi import File, Form, UploadFile
 
     @app.post("/api/image")
     def image(file: UploadFile = File(...), question: str = Form("What is in this image?")):

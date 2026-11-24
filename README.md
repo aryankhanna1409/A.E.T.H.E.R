@@ -22,6 +22,34 @@ No cloud APIs. No Ollama. The language model runs **in-process** through `llama-
 | Proactive | Due reminders, a morning brief, finished goals and gentle check-ins, with quiet hours and a rate limit |
 | Security | Policy engine on every action, secrets denylist, prompt-injection tripwire with taint mode, encryption at rest (DPAPI-protected key), audit log, emergency stop |
 
+![How a turn flows through AETHER](docs/architecture.svg)
+
+## See inside it
+
+Most assistants are a black box. AETHER records everything it does and lets you poke at its mind.
+
+**Glass box.** Every answer has an *Inspect* button. It opens the full trace of that turn: a waterfall of every stage and every model call (with time to first token), what the router retrieved and how each item scored, which facts the rules derived and the exact facts that prove them, which claims the verifier confirmed or caught, and how the prompt budget was spent. Export any trace as JSON. Traces are encrypted at rest like the rest of your history.
+
+![Glass-box trace of one turn](docs/screenshots/inspector.png)
+
+**What if…** Ask AETHER to reason about a hypothetical: `kabir parent_of zoe; riya lives_in mumbai; !user likes robotics`. It copies the knowledge graph into a sandbox, applies the assumptions (overriding one-valued facts like where someone lives), re-runs every rule, and diffs the result: new conclusions with their proofs, conclusions that would no longer hold, and constraints that would break or be resolved. The graph lights up the difference. Your real memory is never touched. It is also a tool, so you can just ask in chat ("what if Kabir had a daughter Zoe?").
+
+![Counterfactual reasoning on the knowledge graph](docs/screenshots/whatif.png)
+
+**Time travel.** Beliefs in AETHER have a lifetime: when it learned something and when a newer fact replaced it. Press play on the Knowledge page and watch the graph grow and change, one belief at a time, with the rules re-derived at every moment. Click any entity to see its belief history.
+
+**Mission control.** A background goal is shown as a live dependency graph: the executive's plan, which specialist runs each task, what is done, what is running (edges into it animate) and what is waiting.
+
+| Time travel | Mission control |
+| --- | --- |
+| ![Belief time travel](docs/screenshots/timetravel.png) | ![Live goal graph](docs/screenshots/mission.png) |
+
+**HUD.** `Ctrl Shift H` (or the HUD button) turns the app into a full-screen voice interface. Hold `Space` to talk. The orb is drawn from real audio, your microphone's spectrum while you speak and AETHER's own synthesized voice while it answers, and the current pipeline stage shows underneath.
+
+| Listening | Answering |
+| --- | --- |
+| ![HUD listening](docs/screenshots/hud-listen.png) | ![HUD answer](docs/screenshots/hud-answer.png) |
+
 ## The app
 
 ![Chat with the live thinking pipeline](docs/screenshots/chat.png)
@@ -32,7 +60,7 @@ No cloud APIs. No Ollama. The language model runs **in-process** through `llama-
 * **Today:** a brief, reminders, goals and anything waiting for your approval.
 * **Memory:** search and forget memories, toggle preferences and see when they changed, confirm or reject patterns AETHER noticed.
 * **Knowledge:** an interactive map of everything AETHER knows, with rule-derived links, proofs ("why?"), logic queries and your own rules.
-* **Goals, Lab, Self, Activity, Settings:** background agents, the optimization workspace, performance and self-improvement, the full audit log with undo, and safe settings with sliders.
+* **Mission control, Lab, Self, Activity, Settings:** background agents with a live task graph, the optimization workspace, performance and self-improvement, the full audit log with undo, and safe settings with sliders.
 * `Ctrl K` opens a command palette that also searches memories, facts and past chats. Dark and light themes.
 
 | Knowledge map | Light theme |
@@ -74,7 +102,7 @@ Structured outputs are enforced with a JSON grammar, so even small models return
 ## Check it on your PC
 
 ```powershell
-.\.venv\Scripts\pytest                       # 111 unit tests, no model needed, about 15 s
+.\.venv\Scripts\pytest                       # 122 unit tests, no model needed, about 15 s
 .\.venv\Scripts\aether-eval                  # 10 end-to-end scenarios with YOUR model, 5-15 min
 .\.venv\Scripts\python scripts\bench.py      # speed against the performance budget
 ```

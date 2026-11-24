@@ -123,3 +123,43 @@ class KnowledgeGraph:
 
     def all(self) -> list[Triple]:
         return self.query(None, None, None)
+
+    # ------------------------------------------------------------ time travel
+    def as_of(self, ts: float, include_derived: bool = True) -> list[Triple]:
+        """What AETHER believed at time `ts`: facts created before it and not yet retired."""
+        q = "SELECT id,s,p,o,source,confidence FROM triples WHERE created<=? AND (valid_to IS NULL OR valid_to>?)"
+        if not include_derived:
+            q += " AND derived=0"
+        with self.lock:
+            rows = self.db.execute(q, (ts, ts)).fetchall()
+        return [Triple(r[1], r[2], r[3], r[4], r[5], r[0]) for r in rows]
+
+    def history(self, entity: str | None = None, limit: int = 300) -> list[dict]:
+        """Every belief change, oldest first: when a fact was learned and when it was retired."""
+        q = "SELECT id,s,p,o,source,confidence,created,valid_to,derived FROM triples"
+        args: list = []
+        if entity:
+            q += " WHERE s=? OR o=?"
+            args = [norm(entity)] * 2
+        with self.lock:
+            rows = self.db.execute(q + " ORDER BY created DESC LIMIT ?", (*args, limit)).fetchall()[::-1]
+        return [{"id": r[0], "s": r[1], "p": r[2], "o": r[3], "source": r[4], "confidence": r[5], "learned": r[6],
+                 "retired": r[7], "derived": bool(r[8])} for r in rows]
+
+    def snapshot(self) -> "KnowledgeGraph":
+        """An in-memory copy (live facts only) for hypothetical reasoning; the real graph is untouched."""
+        return self.snapshot_at(None)
+
+    def snapshot_at(self, ts: float | None) -> "KnowledgeGraph":
+        """An in-memory copy of the stated (non-derived) beliefs held at `ts` (None = now)."""
+        mem = sqlite3.connect(":memory:", check_same_thread=False)
+        copy = KnowledgeGraph(mem, threading.Lock())
+        q = "SELECT s,p,o,source,confidence,created,derived FROM triples WHERE derived=0 AND "
+        with self.lock:
+            if ts is None:
+                rows = self.db.execute(q + "valid_to IS NULL").fetchall()
+            else:
+                rows = self.db.execute(q + "created<=? AND (valid_to IS NULL OR valid_to>?)", (ts, ts)).fetchall()
+        mem.executemany("INSERT INTO triples(s,p,o,source,confidence,created,derived) VALUES (?,?,?,?,?,?,?)", rows)
+        mem.commit()
+        return copy

@@ -13,9 +13,10 @@ export class GraphView {
     const cs = getComputedStyle(document.documentElement);
     return { accent: cs.getPropertyValue("--accent").trim(), accent2: cs.getPropertyValue("--accent2").trim(),
              text: cs.getPropertyValue("--text").trim(), muted: cs.getPropertyValue("--muted").trim(),
-             line: cs.getPropertyValue("--line2").trim(), bg: cs.getPropertyValue("--bg").trim(), good: cs.getPropertyValue("--good").trim() };
+             line: cs.getPropertyValue("--line2").trim(), bg: cs.getPropertyValue("--bg").trim(), good: cs.getPropertyValue("--good").trim(),
+             bad: cs.getPropertyValue("--bad").trim(), warn: cs.getPropertyValue("--warn").trim() };
   }
-  setData({ nodes, links }) {
+  setData({ nodes, links }, { keepView = false } = {}) {
     const old = new Map(this.nodes.map(n => [n.id, n]));
     this.nodes = nodes.map((n, i) => {
       const o = old.get(n.id);
@@ -23,8 +24,13 @@ export class GraphView {
       return { ...n, x: o?.x ?? Math.cos(a) * r, y: o?.y ?? Math.sin(a) * r, vx: 0, vy: 0, r: 5 + Math.min(14, Math.sqrt(n.degree) * 3) };
     });
     const idx = new Map(this.nodes.map(n => [n.id, n]));
+    if (keepView) for (const l of links) {  // spawn newcomers next to a neighbour that is already on screen
+      for (const [a, b] of [[l.source, l.target], [l.target, l.source]]) {
+        if (!old.has(a) && old.has(b) && idx.get(a)) { const o = old.get(b), n = idx.get(a), t = Math.random() * 6.28; n.x = o.x + Math.cos(t) * 60; n.y = o.y + Math.sin(t) * 60; old.set(a, n); }
+      }
+    }
     this.links = links.map(l => ({ ...l, s: idx.get(l.source), t: idx.get(l.target) })).filter(l => l.s && l.t);
-    this.alpha = 1; this.fitted = false;
+    if (keepView) { this.alpha = Math.max(this.alpha, .35); } else { this.alpha = 1; this.fitted = false; }
   }
   fit() {
     if (!this.nodes.length) return;
@@ -111,6 +117,17 @@ export class GraphView {
       }
     }
     g.setLineDash([]);
+    // Marked links: what-if gains/losses, assumptions, and beliefs that just changed during time travel.
+    const pulse = .55 + .45 * Math.sin(performance.now() / 260);
+    for (const l of this.links) {
+      if (!l.mark) continue;
+      const col = { gain: C.good, lose: C.bad, assume: C.warn, new: C.accent }[l.mark];
+      g.save(); g.globalAlpha = l.mark === "lose" ? .9 : .6 + .4 * pulse; g.strokeStyle = col; g.lineWidth = 2.6;
+      g.shadowColor = col; g.shadowBlur = 14 * pulse; g.setLineDash(l.mark === "lose" ? [3, 5] : l.mark === "gain" ? [7, 4] : []);
+      g.beginPath(); g.moveTo(l.s.x, l.s.y); g.lineTo(l.t.x, l.t.y); g.stroke(); g.restore();
+      g.globalAlpha = 1; g.fillStyle = col; g.font = "600 10.5px Segoe UI, system-ui"; g.textAlign = "center";
+      g.fillText((l.mark === "lose" ? "✕ " : l.mark === "gain" ? "+ " : "") + l.label.replace(/_/g, " "), (l.s.x + l.t.x) / 2, (l.s.y + l.t.y) / 2 - 5);
+    }
     for (const n of this.nodes) {
       const match = f && n.id.toLowerCase().includes(f);
       const dim = (focus && !near.has(n) && n !== focus) || (f && !match);
@@ -118,6 +135,8 @@ export class GraphView {
       g.beginPath(); g.arc(n.x, n.y, n.r, 0, Math.PI * 2);
       g.fillStyle = n.user ? C.accent : n === this.sel ? C.accent : C.bg; g.fill();
       g.lineWidth = n === focus || match ? 2.5 : 1.5; g.strokeStyle = n.user ? C.accent : match ? C.good : C.accent; g.stroke();
+      if (n.mark) { g.save(); g.globalAlpha = .5 + .5 * pulse; g.strokeStyle = { gain: C.good, lose: C.bad, assume: C.warn, new: C.accent }[n.mark]; g.lineWidth = 2;
+        g.beginPath(); g.arc(n.x, n.y, n.r + 5 + 3 * pulse, 0, Math.PI * 2); g.stroke(); g.restore(); }
       if (n === this.sel || n.user) { g.globalAlpha = dim ? .1 : .25; g.beginPath(); g.arc(n.x, n.y, n.r + 6, 0, Math.PI * 2); g.strokeStyle = C.accent; g.stroke(); }
       g.globalAlpha = dim ? .25 : 1; g.fillStyle = C.text; g.font = `${n === focus ? 600 : 500} 12px Segoe UI, system-ui`;
       g.textAlign = "center"; g.fillText(n.id, n.x, n.y + n.r + 14);
