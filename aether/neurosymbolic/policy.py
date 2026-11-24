@@ -26,7 +26,8 @@ RISK = {
     "fs.create": 3, "fs.modify": 4, "app.open": 4, "autonomy": 3, "fs.move": 4,
     "fs.delete": 5, "shell": 5, "ui.automation": 5, "screen.observe": 4, "message.send": 5,
 }
-ALWAYS_CONFIRM = {"fs.delete", "shell", "ui.automation", "message.send", "fs.modify"}
+ALWAYS_CONFIRM = {"fs.delete", "shell", "ui.automation", "message.send", "fs.modify", "fs.move",
+                  "screen.observe", "app.open", "autonomy"}
 
 
 @dataclass
@@ -67,7 +68,7 @@ class PolicyEngine:
             hit = self._secret(p)
             if hit:
                 return PolicyResult(Decision.DENY, f"{p.name} matches the secrets denylist ({hit}); never accessible.")
-            write = category in {"fs.create", "fs.modify", "fs.delete"}
+            write = category in {"fs.create", "fs.modify", "fs.delete", "fs.move", "shell"}
             roots = self.sec.allowed_write_roots if write else self.sec.allowed_read_roots + self.sec.allowed_write_roots
             if not self._inside(p, roots):
                 kind = "write to" if write else "read"

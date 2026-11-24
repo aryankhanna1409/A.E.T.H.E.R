@@ -35,6 +35,7 @@ from ..personalization.preferences import PreferenceModel
 from ..research import pipeline as research
 from ..retrieval import citations
 from ..retrieval.watcher import FolderWatcher
+from ..tools.computer import Journal, computer_tools
 from ..tools.filesystem import filesystem_tools
 from ..tools.registry import Tool, ToolRegistry, ToolResult
 from ..tools.web import web_tools
@@ -85,7 +86,8 @@ class Aether:
         self.audit = AuditLog(cfg.audit_path)
         self.policy = PolicyEngine(cfg.security)
         self.tools = ToolRegistry(self.policy, self.audit, confirm)
-        for t in filesystem_tools() + web_tools():
+        self.journal = Journal(self.db, self.lock, cfg.home / "trash")
+        for t in filesystem_tools(self.journal) + web_tools() + computer_tools(cfg.security, self.journal):
             self.tools.register(t)
         self.tools.register(Tool("optimize_schedule",
                                  "plan tasks across the week with GA + simulated annealing",

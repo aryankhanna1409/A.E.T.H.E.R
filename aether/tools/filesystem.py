@@ -87,14 +87,31 @@ def fs_modify(path: str, content: str) -> str:
     return f"Updated {p} (backup at {backup.name}, verified)."
 
 
-def filesystem_tools() -> list[Tool]:
+def filesystem_tools(journal=None) -> list[Tool]:
+    def create(path: str, content: str) -> str:
+        out = fs_create(path, content)
+        if journal:
+            journal.log("create", str(Path(path).expanduser().resolve()))
+        return out
+
+    def modify(path: str, content: str) -> str:
+        p = Path(path).expanduser().resolve()
+        existed = p.exists()
+        out = fs_modify(path, content)
+        if journal:
+            if existed:
+                journal.log("modify", str(p), backup=str(p.with_suffix(p.suffix + ".aether-bak")))
+            else:
+                journal.log("create", str(p))
+        return out
+
     return [
         Tool("fs_read", "read a text, code, PDF or DOCX file", {"path": "file path"}, "fs.read", fs_read, "path"),
         Tool("fs_list", "list a folder", {"path": "folder path"}, "fs.list", fs_list, "path"),
         Tool("fs_search", "search file names and contents in a folder", {"path": "folder", "query": "text"},
              "fs.search", fs_search, "path"),
         Tool("fs_create", "create a new file (asks first)", {"path": "file path", "content": "text"},
-             "fs.create", fs_create, "path"),
+             "fs.create", create, "path"),
         Tool("fs_modify", "overwrite a file, keeping a backup (asks first)", {"path": "file path", "content": "text"},
-             "fs.modify", fs_modify, "path"),
+             "fs.modify", modify, "path"),
     ]

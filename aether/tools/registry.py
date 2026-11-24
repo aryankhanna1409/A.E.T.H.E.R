@@ -20,6 +20,7 @@ class Tool:
     category: str  # policy category, e.g. "fs.read"
     fn: Callable[..., str]
     path_arg: str | None = None  # which arg (if any) is a filesystem path
+    extra_path_args: tuple[tuple[str, str], ...] = ()  # (arg, policy category) also checked, e.g. a move target
 
     def signature(self) -> str:
         args = ", ".join(f"{k}: {v}" for k, v in self.params.items())
@@ -60,6 +61,11 @@ class ToolRegistry:
             return ToolResult(name, False, f"No such tool '{name}'.", "deny")
         path = args.get(tool.path_arg) if tool.path_arg else None
         verdict = self.policy.evaluate(tool.category, path, detail=str(args)[:200])
+        for arg, category in tool.extra_path_args:  # every path must pass; the strictest verdict wins
+            if args.get(arg) and verdict.decision != Decision.DENY:
+                other = self.policy.evaluate(category, args[arg], detail=str(args)[:200])
+                if other.decision == Decision.DENY or (other.decision == Decision.CONFIRM and verdict.decision == Decision.ALLOW):
+                    verdict = other
         target = path or str(args)[:120]
         if verdict.decision == Decision.DENY:
             self.audit.record(tool.category, target, False, verdict.reason)

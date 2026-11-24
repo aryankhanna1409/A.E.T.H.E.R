@@ -61,6 +61,16 @@ class SecurityConfig(BaseModel):
     allowed_write_roots: list[str] = Field(default_factory=list)  # empty = read-only to start
     auto_approve: list[str] = Field(default_factory=lambda: ["fs.read", "fs.list", "fs.search", "web.search", "web.fetch"])
     network: bool = True  # web research on/off
+    # Apps AETHER may open: name -> command or full path to the .exe
+    apps: dict[str, str] = Field(default_factory=lambda: {
+        "notepad": "notepad.exe", "calculator": "calc.exe", "explorer": "explorer.exe",
+        "vscode": "code", "chrome": "chrome.exe", "edge": "msedge.exe", "spotify": "spotify.exe",
+    })
+    # Programs the sandboxed shell may run (first word of the command). Always asks first.
+    shell_allow: list[str] = Field(default_factory=lambda: ["python", "py", "pytest", "git", "node", "npm", "dir", "where"])
+    shell_timeout_s: int = 120
+    screen_access: bool = False  # screenshots + OCR; off until you turn it on
+    ui_automation: bool = False  # keyboard/mouse control of apps; off until you turn it on
     denylist_globs: list[str] = Field(default_factory=lambda: [
         "*.env", ".env.*", "*.pem", "*.key", "id_rsa*", "id_ed25519*", "*.kdbx", "*.ppk",
         "Login Data", "Cookies", "*.sqlite-wal", "credentials*", "*secret*",
