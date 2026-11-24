@@ -69,6 +69,18 @@ class ProactiveConfig(BaseModel):
     morning_brief: str = "08:30"  # empty = off
     wellness_checkins: bool = True
     check_interval_s: int = 60
+    event_alert_minutes: int = 15  # "Lecture in 15 minutes, Room 4" (0 = off)
+    evening_review: str = "20:00"  # what's still open today + tomorrow's first event ("" = off)
+    low_battery: int = 20  # warn when on battery and at or below this percent (0 = off)
+
+
+class CalendarConfig(BaseModel):
+    # Folders or .ics files exported from Outlook, Google Calendar, Apple Calendar, a timetable...
+    # Read locally; nothing is synced online. Events AETHER adds go to aether.ics in the first folder.
+    ics_paths: list[str] = Field(default_factory=lambda: [str(Path.home() / "Documents" / "AETHER" / "calendar")])
+    outlook: bool = False  # also read the classic Outlook desktop app on this PC (needs pywin32)
+    day_start: str = "09:00"  # for finding free time
+    day_end: str = "21:00"
 
 
 class SecurityConfig(BaseModel):
@@ -133,6 +145,7 @@ class Config(BaseModel):
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
+    calendar: CalendarConfig = Field(default_factory=CalendarConfig)
     max_plan_steps: int = 8
 
     @property

@@ -43,4 +43,6 @@ If you are over budget: run `scripts\tune_gpu.py`, lower `[llm].context_tokens`,
 
 ## Proactive messages
 
-AETHER may speak first for due reminders, a morning brief, finished goals, waiting proposals and a gentle check-in after repeated stress. Quiet hours (default 23:00 to 07:30) hold everything until morning, at most 3 messages are shown per hour, and nothing is dropped. All of it is in `[proactive]` in `aether.toml`.
+AETHER may speak first for due reminders, a morning brief, events about to start, an evening review, low battery, finished goals, waiting proposals and a gentle check-in after repeated stress. Quiet hours (default 23:00 to 07:30) hold everything until morning, at most 3 messages are shown per hour, and nothing is dropped. All of it is in `[proactive]` in `aether.toml`.
+
+The calendar is read from local files (and, if you turn it on, the Outlook app on this PC); nothing is fetched online. Calendar invites are written by other people, so event titles and locations are treated as untrusted data: tags are made inert, and a title that reads like instructions is hidden from the model entirely. AETHER only ever writes to its own `aether.ics`, never into your exported files, and adding an event asks first unless you put `calendar.write` in `auto_approve`.

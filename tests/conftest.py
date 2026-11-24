@@ -52,6 +52,7 @@ def cfg(tmp_path):
     c.security.allowed_read_roots = [str(docs.resolve())]
     c.security.allowed_write_roots = [str(out.resolve())]
     c.security.network = False
+    c.calendar.ics_paths = [str(tmp_path / "calendar")]
     return c
 
 

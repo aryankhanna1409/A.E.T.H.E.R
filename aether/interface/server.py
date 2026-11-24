@@ -57,6 +57,13 @@ class ChatIn(BaseModel):
     voice: bool = False  # the reply will be spoken: keep it short and plain
 
 
+class EventIn(BaseModel):
+    title: str
+    when: str
+    minutes: int = 60
+    location: str = ""
+
+
 class RoutineIn(BaseModel):
     name: str
     steps: str
@@ -250,6 +257,33 @@ def create_app(config_path: str | None = None) -> FastAPI:
         results = aether.routines.run(r, aether.tools)
         return {"text": summary(r, results), "results": [{"tool": x.tool, "ok": x.ok, "decision": x.decision,
                                                            "output": x.output[:300]} for x in results]}
+
+    @app.get("/api/calendar")
+    def calendar(when: str = "today"):
+        from datetime import datetime
+        from ..memory import calendar as cal
+        c, cc = aether.calendar, aether.cfg.calendar
+        start, end, label = cal.resolve_range(when, datetime.now())
+        one_day = (end - start).days <= 1
+        return {"label": label, "start": start.isoformat(), "end": end.isoformat(),
+                "events": [e.as_dict() for e in c.events(start, end)],
+                "free": [[a.isoformat(timespec="minutes"), b.isoformat(timespec="minutes")]
+                         for a, b in (c.free_slots(start.date(), cc.day_start, cc.day_end) if one_day else [])],
+                "day_start": cc.day_start, "day_end": cc.day_end, "files": [f.name for f in c.files()],
+                "folder": str(c.paths[0]) if c.paths else "", "outlook": cc.outlook}
+
+    @app.post("/api/calendar")
+    def add_event(body: EventIn):
+        from datetime import datetime, timedelta
+        from ..memory import calendar as cal
+        start = cal.parse_when(body.when, datetime.now())
+        if start is None:
+            raise HTTPException(400, f"I couldn't tell when '{body.when}' is. Try 'friday 3pm'.")
+        end = start + timedelta(minutes=max(5, min(24 * 60, body.minutes)))
+        clash = aether.calendar.clash(start, end)
+        ev = aether.calendar.add(body.title.strip()[:200] or "(no title)", start, end, body.location.strip()[:200])
+        aether.audit.record("calendar.write", f"{ev.title} @ {ev.start.isoformat()}", True, "added by you in the app")
+        return {**ev.as_dict(), "clash": [e.as_dict() for e in clash]}
 
     @app.get("/api/kg/history")
     def kg_history(entity: str | None = None, limit: int = 400):

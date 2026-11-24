@@ -26,10 +26,10 @@ PATTERNS: dict[str, re.Pattern] = {
     "tool_command": re.compile(r"\b(call|run|execute|invoke|use)\b.{0,20}\b(fs_delete|fs_move|fs_modify|fs_create|shell\s*\(|"
                                r"the shell tool|app_open|ui_click|ui_type|start_goal|remember\s*\(|the remember tool|call remember|web_fetch)", re.I),
     "template_tokens": re.compile(r"<\|(im_start|im_end|system|user|assistant|endoftext)\|>|\[/?INST\]|<</?SYS>>", re.I),
-    "block_escape": re.compile(r"</?\s*(user_message|tool_output|documents|memory|web|known_facts|system)\s*>", re.I),
+    "block_escape": re.compile(r"</?\s*(user_message|tool_output|documents|memory|web|known_facts|system|calendar)\s*>", re.I),
 }
 
-BLOCK_TAGS = re.compile(r"<(/?)\s*(user_message|tool_output|documents|memory|web|known_facts|system|source)\s*>", re.I)
+BLOCK_TAGS = re.compile(r"<(/?)\s*(user_message|tool_output|documents|memory|web|known_facts|system|source|calendar)\s*>", re.I)
 TEMPLATE = re.compile(r"<\|([a-z_]+)\|>", re.I)
 
 # Categories that only read; still allowed without an extra question while tainted.

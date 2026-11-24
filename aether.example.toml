@@ -73,3 +73,13 @@ quiet_end = "07:30"
 max_per_hour = 3
 morning_brief = "08:30"          # "" to turn off
 wellness_checkins = true
+event_alert_minutes = 15         # "lecture in 15 minutes" (0 = off)
+evening_review = "20:00"         # what's still open + tomorrow's first event ("" = off)
+low_battery = 20                 # warn on battery at or below this percent (0 = off)
+
+[calendar]
+# Export .ics files (Outlook: File > Save Calendar; Google Calendar: Settings > Import & export) into this folder.
+ics_paths = ["~/Documents/AETHER/calendar"]
+outlook = false                  # also read the classic Outlook desktop app on this PC (pip install pywin32)
+day_start = "09:00"              # for finding free time
+day_end = "21:00"
