@@ -26,22 +26,30 @@ LEARN      episodic summary, mood observation (inferred, never a fact)  (code)
 
 ```
 aether/
-  core/            config (pydantic, aether.toml), logging, audit log
+  core/            config (pydantic, aether.toml), logging + audit, encryption at rest (DPAPI), learned setting overrides
   llm/             provider interface, llama.cpp provider, transformers provider, local embeddings
   cognition/       IR schema + cognitive state, perception, router, context (topics, working memory), orchestrator
-  neurosymbolic/   knowledge graph, rule engine, policy engine, temporal reasoning, verifier
-  memory/          layered SQLite store with hybrid search
-  retrieval/       BM25 and sparse vectors
-  personalization/ preference learning and enforcement
+  neurosymbolic/   knowledge graph, rule engine, CSP solver, policy engine, temporal reasoning, verifier, document facts
+  memory/          layered SQLite store with hybrid search, vector index, extraction, reminders, lifecycle
+  retrieval/       BM25, folder watcher, reranker, citation validation
+  research/        cited research pipeline (known vs new)
+  agents/          task graph, executive, specialists (research, reasoning, coding, operator, memory, verification)
+  tools/           registry (policy + taint), filesystem, web, computer (apps, shell, trash, undo, OCR, UI automation)
+  personalization/ preference learning and enforcement, behavioural observations
   wellness/        companion modes, crisis handling
-  tools/           registry, filesystem, web
-  optimization/    GA, simulated annealing, PSO, schedule problem
-  interface/       CLI, FastAPI server, web UI (later wrapped in Tauri)
-tests/             27 tests, no model weights needed
-scripts/           Windows setup, model download
+  optimization/    GA, SA, PSO (engine), NSGA-II, tabu, DE (advanced), retrieval self-tuning
+  metacognition/   turn metrics, feedback, post-task self-review, improvement proposals
+  proactive/       triggers, quiet hours, rate limits, notifications
+  security/        prompt-injection scanner and neutralizer
+  speech/          faster-whisper STT, Piper TTS, VAD, wake word, voice loop with barge-in
+  perception/      local vision (Qwen2.5-VL via llama.cpp, loaded on demand)
+  evals/           end-to-end scenarios for the real model (aether-eval)
+  interface/       CLI, FastAPI server, web UI
+desktop/           Tauri 2 shell
+installer/         Inno Setup script
+scripts/           Windows setup, model download, GPU tuning, benchmark, installer build
+tests/             103 tests, no model weights needed
 ```
-
-Planned additions follow the same shape: `agents/` (executive, research, coding, operator, verification), `speech/` (stt, tts), `perception/vision`, `metacognition/`, `tools/apps`, `tools/shell`, `desktop/` (Tauri).
 
 ## Dependencies
 
@@ -66,23 +74,25 @@ Planned additions follow the same shape: `agents/` (executive, research, coding,
 
 ## Phases
 
-| # | Phase | Status | Exit criteria |
+| # | Phase | Status | What landed |
 | --- | --- | --- | --- |
-| 1 | Foundation + cognitive core | **Done (this PR)** | Chat, IR, KG, rules, memory, routing, prefs, wellness, policy, UI, 27 tests |
-| 2 | Memory depth | Next | sqlite-vec index, memory extraction after chats, summaries, prospective reminders, decay jobs |
-| 3 | Neuro-symbolic depth | | LLM-extracted triples from documents, rule authoring in UI, proof display, constraint solver for plans |
-| 4 | RAG and research | | Ingestion watcher, reranker, query decomposition, citation validation, research reports |
-| 5 | Agents and autonomy | | Task graph with checkpoints, executive/research/verification agents, retries with limits, background goals |
-| 6 | Computer control | | App launch, UI automation, sandboxed scripts, screen reading, undo journal |
-| 7 | Personalization and desktop UI | | Tauri shell, observation review screen, preference timeline |
-| 8 | Voice and multimodal | | Wake word, streaming STT/TTS with barge-in, screenshot and image understanding |
-| 9 | Metaheuristics | | NSGA-II, optimization workspace, self-tuning of router thresholds on a scored eval set |
-| 10 | Metacognition | | Post-task self-evaluation, metrics dashboard, approval-gated self-improvement |
-| 11 | Hardening | | Encryption at rest (DPAPI), prompt-injection suite, installer, performance budget |
+| 1 | Foundation + cognitive core | Done | Chat, IR, KG, rules, memory, routing, prefs, wellness, policy, UI |
+| 2 | Memory depth | Done | Vector index, memory extraction after chats, topic summaries, prospective reminders, decay |
+| 3 | Neuro-symbolic depth | Done | LLM-extracted triples from documents, persisted user rules, first-order queries with proofs, CSP planner |
+| 4 | RAG and research | Done | Folder watcher, reranker, cited research briefs, citation validation |
+| 5 | Agents and autonomy | Done | Persistent task graph, executive + specialists + verifier, bounded retries, re-plan, background goals |
+| 6 | Computer control | Done | App launch, sandboxed shell, trash + undo journal, OCR screen reading, UI automation |
+| 7 | Personalization and desktop UI | Done | Tauri shell, observation review, preference timeline, goals and patterns tabs |
+| 8 | Voice and multimodal | Done | Wake word, STT/TTS with barge-in and follow-up window, image understanding |
+| 9 | Metaheuristics | Done | NSGA-II, tabu search, differential evolution, optimization workspace (Lab tab), PSO self-tuning of retrieval |
+| 10 | Metacognition | Done | Turn metrics, implicit and explicit feedback, post-task self-review with lessons, approval-gated proposals (Self tab) |
+| 11 | Hardening | Done | Encryption at rest (DPAPI), injection tripwire + taint mode + test suite, proactive engine, real-model evals, installer, performance budget |
 
-## Known limits of Phase 1
+## Known limits
 
-* Small local models follow instructions less reliably than large cloud models. The symbolic layer exists to catch that, but answer quality still depends on the GGUF you choose.
+* Everything was built and unit-tested here with a scripted model double (103 tests). It has **not yet run against real GGUF weights, a microphone, a GPU or Windows APIs**; `aether-eval` and `scripts/bench.py` are the first real check on your PC.
+* Small local models follow instructions less reliably than large cloud models. The symbolic layer and code-side filters catch a lot of that, but answer quality still depends on the GGUF you choose.
+* The Tauri shell and the Inno Setup installer have not been compiled here.
+* The injection scanner is a tripwire; the policy engine and taint mode are the real guarantee.
 * Without the `embeddings` extra, search is keyword-only (BM25); `/status` and the UI header say so.
 * Web search uses DuckDuckGo's public results, which can rate-limit heavy use.
-* The orchestrator was tested end to end with a scripted model double; it has not yet been run against real GGUF weights in CI.
