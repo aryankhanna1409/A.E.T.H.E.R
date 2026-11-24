@@ -1,0 +1,72 @@
+# Copy to aether.toml (next to where you run AETHER) or to %LOCALAPPDATA%\AETHER\aether.toml
+user_name = "Aryan"
+max_plan_steps = 8
+
+[llm]
+backend = "llama_cpp"            # in-process llama.cpp; no Ollama, no server, no API
+# Tuned for HP Victus 15: RTX 3050 Laptop (4 GB), Ryzen 5 5600H, 16 GB RAM.
+model_path = "C:/AETHER/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+context_tokens = 6144
+gpu_layers = 20                  # 7B on 4 GB VRAM: 18-22 fits; run scripts/tune_gpu.py to pick
+threads = 6                      # the 5600H's 6 physical cores
+batch_size = 256
+flash_attn = true
+# Faster alternative that fits entirely in 4 GB VRAM (lower quality):
+#   model_path = "C:/AETHER/models/qwen2.5-3b-instruct-q4_k_m.gguf"
+#   gpu_layers = -1
+#   context_tokens = 8192
+temperature = 0.6
+max_reply_tokens = 1024
+
+[embeddings]
+backend = "sentence_transformers"  # or "lexical" for BM25 only (no embedding model)
+model = "BAAI/bge-small-en-v1.5"   # downloaded once into the Hugging Face cache, offline after
+device = "cpu"                     # keep on CPU: the 4 GB of VRAM is reserved for the LLM
+
+[memory]
+rag_min_score = 0.25
+rag_top_k = 6
+hybrid_alpha = 0.6
+reranker_model = ""              # "BAAI/bge-reranker-base" for better document answers (CPU, ~1 GB RAM)
+watch_interval_s = 300           # re-index your folders every 5 minutes (0 = off)
+
+[context]
+topic_switch_threshold = 0.12
+
+[security]
+# AETHER starts read-only inside these folders. Add write roots deliberately.
+allowed_read_roots = ["C:/Users/Aryan/Documents/AETHER", "C:/Users/Aryan/Documents/Research"]
+allowed_write_roots = ["C:/Users/Aryan/Documents/AETHER/output"]
+auto_approve = ["fs.read", "fs.list", "fs.search", "web.search", "web.fetch"]
+network = true                   # false = fully offline (disables web research)
+encrypt_at_rest = true           # memories + chat log encrypted; key protected by your Windows login (DPAPI)
+screen_access = false            # screenshots + OCR (asks each time when on)
+ui_automation = false            # keyboard/mouse control of apps (asks each time when on)
+shell_allow = ["python", "py", "pytest", "git", "node", "npm", "dir", "where"]
+[security.apps]
+notepad = "notepad.exe"
+calculator = "calc.exe"
+vscode = "code"
+chrome = "chrome.exe"
+spotify = "spotify.exe"
+
+[voice]                          # run: aether-voice   (all on the CPU; the GPU stays with the LLM)
+stt_model = "small.en"           # base.en is faster, medium.en more accurate
+tts_voice_path = "C:/AETHER/voices/en_GB-alan-medium.onnx"
+wake_word = "hey_jarvis"
+vad_energy = 0.012               # raise if background noise triggers it
+barge_in = true
+
+[vision]                         # optional: understand screenshots and images (loaded only when used)
+model_path = ""                  # e.g. C:/AETHER/models/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf
+mmproj_path = ""                 # e.g. C:/AETHER/models/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf
+handler = "qwen25vl"
+gpu_layers = 0
+
+[proactive]
+enabled = true
+quiet_start = "23:00"
+quiet_end = "07:30"
+max_per_hour = 3
+morning_brief = "08:30"          # "" to turn off
+wellness_checkins = true
