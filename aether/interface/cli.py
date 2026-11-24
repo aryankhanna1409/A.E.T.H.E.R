@@ -22,6 +22,9 @@ HELP = """Commands:
   /eval add MSG => TEXT  add a retrieval eval case (TEXT = memory that should come back; empty = nothing)
   /eval                  list eval cases       /tune   tune retrieval on them (asks before applying)
   /settings              learned setting overrides       /settings revert SECTION.KEY
+  /metrics [days]        how AETHER has been performing    /good | /bad   rate the last answer
+  /proposals             self-improvement proposals        /approve ID | /decline ID
+  /reviews               post-task self-reviews of finished goals
   /ask PATTERN           logic query, e.g. /ask parent_of(?p, riya)
   /plan TASKS            exact planner, e.g. /plan essay:3:2; slides:2:4:essay
   /research QUESTION     cited research brief (web + your documents)
@@ -149,6 +152,21 @@ def command(a, text: str, last_state) -> str:
             return a.settings.revert(sec, key)
         return "\n".join(f"{o['section']}.{o['key']} = {o['value']} (was {o['previous']}; {o['reason']})"
                          for o in a.settings.list()) or "No learned overrides; aether.toml values are in use."
+    if cmd == "/metrics":
+        import json as _json
+        return _json.dumps(a.meta.summary(float(parts[1]) if len(parts) > 1 else 7), indent=2)
+    if cmd in {"/good", "/bad"}:
+        a.meta.feedback(None, 1 if cmd == "/good" else -1)
+        return "Thanks, noted."
+    if cmd == "/proposals":
+        a.meta.propose(a.cfg)
+        return "\n".join(f"#{p.id} [{p.status}] {p.title}\n    {p.rationale}" for p in a.meta.proposals()) \
+            or "No proposals. Nothing in the metrics needs changing."
+    if cmd in {"/approve", "/decline"}:
+        return a.meta.decide(int(parts[1]), cmd == "/approve", a.settings, a.prefs, a.store)
+    if cmd == "/reviews":
+        return "\n".join(f"goal #{r['goal_id']} [{r['status']}] score {r['score']:.2f}: {r['went_wrong']} Lesson: {r['lesson']}"
+                         for r in a.meta.reviews()) or "No finished goals reviewed yet."
     if cmd == "/ask":
         return "\n".join(str(b) for b in a.rules.ask(text[4:].strip())) or "No matches."
     if cmd == "/plan":

@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -22,6 +23,7 @@ from ..agents.taskgraph import TaskGraph
 from ..core.logging import AuditLog, log
 from ..llm.base import LLMProvider, LLMUnavailable, Message, structured
 from ..memory import extraction, lifecycle
+from ..metacognition import Metacognition
 from ..memory.prospective import Reminders
 from ..memory.store import MemoryStore
 from ..neurosymbolic.csp import plan_tool
@@ -87,6 +89,7 @@ class Aether:
         self.lock: threading.Lock = self.store.lock
         self.settings = SettingsStore(self.db, self.lock, cfg)
         self.evals = tuning.EvalSet(self.db, self.lock)
+        self.meta = Metacognition(self.db, self.lock)
         self.kg = KnowledgeGraph(self.db, self.lock)
         self.rules = RuleEngine(self.kg)
         self.prefs = PreferenceModel(self.db, self.lock)
@@ -94,6 +97,7 @@ class Aether:
         self.audit = AuditLog(cfg.audit_path)
         self.policy = PolicyEngine(cfg.security)
         self.tools = ToolRegistry(self.policy, self.audit, confirm)
+        self.tools.listeners.append(lambda r: self.meta.record_tool(r.tool, r.ok, r.decision))
         self.journal = Journal(self.db, self.lock, cfg.home / "trash")
         for t in filesystem_tools(self.journal) + web_tools() + computer_tools(cfg.security, self.journal):
             self.tools.register(t)
@@ -132,7 +136,8 @@ class Aether:
         self.graph = TaskGraph(self.db, self.lock)
         self.progress_log: list[str] = []
         self.executive = Executive(llm, self.tools, self.store, self.rules, self.graph,
-                                   progress=lambda m: self.progress_log.append(m)) if llm else None
+                                   progress=lambda m: self.progress_log.append(m),
+                                   on_finish=lambda g: self.meta.review_goal(self.llm, g, self.store)) if llm else None
         self.goals = GoalRunner(self.executive) if self.executive else None
         self.tools.register(Tool("start_goal", "start a multi-step autonomous task in the background (asks first)",
                                  {"goal": "the objective, with any constraints"}, "autonomy",
@@ -147,6 +152,25 @@ class Aether:
 
     # ------------------------------------------------------------------ main entry
     def handle(self, text: str) -> Reply:
+        """One turn, measured. Metrics never change the answer; they feed the dashboard and proposals."""
+        fb = self.meta.implicit_feedback(text)
+        start = time.perf_counter()
+        try:
+            reply = self._handle(text)
+        except Exception as e:
+            self.meta.record_turn(CognitiveState(), (time.perf_counter() - start) * 1000, "error", "", [], str(e))
+            raise
+        reply.state.latency_ms = round((time.perf_counter() - start) * 1000, 1)
+        self.meta.record_turn(reply.state, reply.state.latency_ms, reply.state.current_goal[:80], reply.text, reply.notices)
+        if fb < 0:
+            reply.notices.append("Noted that the last answer missed. It counts toward self-improvement proposals.")
+        if self.meta.last_turn and self.meta.last_turn % 25 == 0:
+            new = self.meta.propose(self.cfg)
+            if new:
+                reply.notices.append(f"{len(new)} self-improvement proposal(s) are waiting for your approval (/proposals).")
+        return reply
+
+    def _handle(self, text: str) -> Reply:
         state = CognitiveState()
         notices: list[str] = []
 
@@ -221,6 +245,7 @@ class Aether:
         check = check_answer(self.llm, self.kg, draft) if self.kg.all() and signal.level != "crisis" else None
         if check and check.contradictions:
             state.contradictions += check.contradictions
+            state.revised = True
             draft = self.llm.chat([Message("system", system), Message("user", user_block),
                                    Message("assistant", draft),
                                    Message("user", "Your answer conflicts with verified facts: "

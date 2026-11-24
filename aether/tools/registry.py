@@ -45,6 +45,7 @@ class ToolRegistry:
     def __init__(self, policy: PolicyEngine, audit: AuditLog, confirm: Confirm):
         self.policy, self.audit, self.confirm = policy, audit, confirm
         self.tools: dict[str, Tool] = {}
+        self.listeners: list = []  # called with every ToolResult (metacognition)
 
     def register(self, tool: Tool) -> None:
         self.tools[tool.name] = tool
@@ -56,6 +57,15 @@ class ToolRegistry:
         return "\n".join(t.signature() for t in self.tools.values())
 
     def call(self, name: str, args: dict[str, str]) -> ToolResult:
+        result = self._call(name, args)
+        for fn in self.listeners:
+            try:
+                fn(result)
+            except Exception:
+                pass
+        return result
+
+    def _call(self, name: str, args: dict[str, str]) -> ToolResult:
         tool = self.tools.get(name)
         if not tool:
             return ToolResult(name, False, f"No such tool '{name}'.", "deny")

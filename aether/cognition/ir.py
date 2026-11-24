@@ -60,3 +60,5 @@ class CognitiveState(BaseModel):
     wellness: str = "normal"
     confidence: float = 0.0
     reasoning_mode: str = "neuro_symbolic"
+    revised: bool = False  # the verifier forced a rewrite this turn
+    latency_ms: float = 0.0

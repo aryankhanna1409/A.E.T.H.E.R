@@ -74,6 +74,11 @@ class EvalIn(BaseModel):
     expect: str = ""
 
 
+class FeedbackIn(BaseModel):
+    value: int = 1
+    turn_id: int | None = None
+
+
 class SettingsIn(BaseModel):
     section: str
     values: dict
@@ -316,6 +321,32 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.post("/api/settings/revert")
     def settings_revert(section: str, key: str):
         return {"message": aether.settings.revert(section, key)}
+
+    # ---------------------------------------------------------------- Phase 10: metacognition
+    @app.get("/api/metrics")
+    def metrics(days: float = 7):
+        return aether.meta.summary(days)
+
+    @app.post("/api/feedback")
+    def feedback(body: FeedbackIn):
+        aether.meta.feedback(body.turn_id, body.value)
+        return {"ok": True}
+
+    @app.get("/api/proposals")
+    def proposals():
+        aether.meta.propose(aether.cfg)
+        return [p.__dict__ for p in aether.meta.proposals()]
+
+    @app.post("/api/proposals/{pid}")
+    def decide(pid: int, approve: bool):
+        try:
+            return {"message": aether.meta.decide(pid, approve, aether.settings, aether.prefs, aether.store)}
+        except PermissionError as e:
+            raise HTTPException(403, str(e))
+
+    @app.get("/api/reviews")
+    def reviews():
+        return aether.meta.reviews()
 
     from fastapi import File, Form, UploadFile
 

@@ -30,10 +30,12 @@ class GoalPlan(BaseModel):
 
 class Executive:
     def __init__(self, llm: LLMProvider, tools, store, rules, graph: TaskGraph, max_tasks: int = 10,
-                 time_budget_s: int = 1800, progress: Callable[[str], None] = lambda m: None):
+                 time_budget_s: int = 1800, progress: Callable[[str], None] = lambda m: None,
+                 on_finish: Callable[[dict], None] = lambda g: None):
         self.llm, self.tools, self.store, self.rules, self.graph = llm, tools, store, rules, graph
         self.max_tasks, self.time_budget_s, self.progress = max_tasks, time_budget_s, progress
         self.cancelled: set[int] = set()
+        self.on_finish = on_finish
         self.verifier = VerificationAgent(llm, tools)
 
     # -------------------------------------------------------------- planning
@@ -79,6 +81,14 @@ class Executive:
         return self.execute(gid, goal)
 
     def execute(self, gid: int, goal: str) -> dict:
+        result = self._execute(gid, goal)
+        try:
+            self.on_finish(result)  # post-task self-review (metacognition)
+        except Exception:
+            log.exception("post-task review failed")
+        return result
+
+    def _execute(self, gid: int, goal: str) -> dict:
         self.graph.set_goal(gid, "running")
         start, replanned = time.time(), False
         while True:
