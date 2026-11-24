@@ -30,6 +30,20 @@ class TextToSpeech:
     def stop(self) -> None:
         self._stop.set()
 
+    def wav_bytes(self, text: str) -> bytes:
+        """Synthesize to an in-memory WAV (for the web app to play)."""
+        import io
+        import wave
+        pcm = b"".join(chunk.audio_int16_bytes for s in re.split(r"(?<=[.!?])\s+", speakable(text)) if s
+                       for chunk in self.voice.synthesize(s))
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(self.rate)
+            w.writeframes(pcm)
+        return buf.getvalue()
+
     def say(self, text: str) -> bool:
         """Speak sentence by sentence; returns False if interrupted."""
         import numpy as np

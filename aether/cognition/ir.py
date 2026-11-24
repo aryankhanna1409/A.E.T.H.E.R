@@ -49,6 +49,7 @@ class IntentIR(BaseModel):
 class CognitiveState(BaseModel):
     """Inspectable task state (shown in the UI's 'mind' panel)."""
     current_goal: str = ""
+    intent: str = ""  # label only (question, task, ...); never the user's words
     active_topic: str = ""
     route: list[str] = Field(default_factory=list)
     known_facts: list[str] = Field(default_factory=list)

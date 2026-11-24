@@ -1,0 +1,717 @@
+// AETHER web app. Plain ES modules, no build step, no network beyond 127.0.0.1.
+import { markdown, esc } from "./md.js";
+import { GraphView } from "./graph.js";
+
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const h = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; };
+const icon = (name) => `<svg><use href="#i-${name}"/></svg>`;
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("aether." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("aether." + k, JSON.stringify(v)); } catch {} },
+};
+const ago = (t) => {
+  const s = Date.now() / 1000 - t;
+  if (s < 60) return "just now"; if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`; return new Date(t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+};
+
+async function api(path, opts = {}) {
+  const init = { ...opts, headers: { ...(opts.body && !(opts.body instanceof FormData) ? { "Content-Type": "application/json" } : {}), ...(opts.headers || {}) } };
+  if (init.body && typeof init.body === "object" && !(init.body instanceof FormData)) init.body = JSON.stringify(init.body);
+  const r = await fetch(path, init);
+  if (!r.ok) { let msg = r.statusText; try { msg = (await r.json()).detail || msg; } catch {} throw new Error(msg); }
+  const ct = r.headers.get("content-type") || "";
+  return ct.includes("json") ? r.json() : r;
+}
+
+function toast(title, body = "", kind = "", ms = 6000) {
+  const t = h(`<div class="toast ${kind}"><b>${esc(title)}</b><button class="icon-btn" aria-label="Dismiss">✕</button>${body ? `<p>${esc(body)}</p>` : ""}</div>`);
+  $("button", t).onclick = () => t.remove();
+  $("#toasts").appendChild(t);
+  if (ms) setTimeout(() => t.remove(), ms);
+}
+
+// ------------------------------------------------------------------ app state
+const S = {
+  view: "chat", status: null, busy: false, session: null,
+  showMind: store.get("showMind", true), showConvos: store.get("showConvos", true),
+  autoSpeak: store.get("autoSpeak", false), theme: store.get("theme", "dark"),
+  lastState: null, pendingId: null, graph: null,
+};
+document.documentElement.dataset.theme = S.theme;
+
+const VIEWS = { chat: "Chat", today: "Today", memory: "Memory", knowledge: "Knowledge", goals: "Goals", lab: "Lab", self: "Self", activity: "Activity", settings: "Settings" };
+
+function go(view) {
+  if (!VIEWS[view]) return;
+  if (S.graph && view !== "knowledge") { S.graph.destroy(); S.graph = null; }
+  S.view = view;
+  $$("#rail button").forEach(b => b.classList.toggle("active", b.dataset.view === view));
+  $("#view-title").textContent = VIEWS[view];
+  const main = $("#main");
+  main.replaceChildren();
+  if (view === "chat") main.appendChild(Chat.el());
+  else { const page = h(`<div class="page"></div>`); main.appendChild(page); RENDER[view](page).catch(e => page.replaceChildren(h(`<div class="empty">Couldn't load this view: ${esc(e.message)}</div>`))); }
+  if (location.hash !== "#" + view) history.replaceState(null, "", "#" + view);
+}
+$$("#rail button").forEach(b => b.onclick = () => go(b.dataset.view));
+
+// ------------------------------------------------------------------ status, stop, approvals, notifications
+async function refreshStatus() {
+  try {
+    const s = S.status = await api("/api/status");
+    const pills = [
+      [s.model_loaded ? "ok" : "bad", s.model_loaded ? "Model ready" : "No model", s.model_loaded ? "" : s.problem],
+      ["", s.embeddings.includes("BM25") ? "Keyword search" : "Hybrid search", s.embeddings],
+      ["", `${s.memories} memories · ${s.facts} facts`, ""],
+      [s.network ? "ok" : "warn", s.network ? "Online research" : "Offline", ""],
+    ];
+    $("#status-pills").innerHTML = pills.map(([k, t, tip]) => `<span class="pill ${k}" title="${esc(tip)}"><span class="dot"></span>${esc(t)}</span>`).join("")
+      + `<span class="pill" title="Memories and chats are encrypted at rest">${icon("lock")}Encrypted</span>`;
+    const stop = $("#stop");
+    stop.classList.toggle("on", s.emergency_stop);
+    $("span", stop).textContent = s.emergency_stop ? "Stopped · click to resume" : "Emergency stop";
+  } catch (e) { $("#status-pills").innerHTML = `<span class="pill bad"><span class="dot"></span>Server offline</span>`; }
+}
+$("#stop").onclick = async () => {
+  const on = !$("#stop").classList.contains("on");
+  await api(`/api/stop?engaged=${on}`, { method: "POST" });
+  toast(on ? "Emergency stop engaged" : "Actions re-enabled", on ? "Every computer action is blocked until you resume." : "", on ? "error" : "");
+  refreshStatus();
+};
+
+async function pollPending() {
+  try {
+    const items = await api("/api/pending");
+    if (items.length && S.pendingId !== items[0].id) {
+      S.pendingId = items[0].id;
+      $("#approval-text").textContent = items[0].prompt;
+      const inj = /prompt injection/i.test(items[0].prompt);
+      $("#approval-note").textContent = inj
+        ? "Something AETHER just read contained instructions aimed at it. Allow only if YOU asked for this."
+        : "Nothing happens unless you allow it. This request expires after two minutes.";
+      $("#approval").hidden = false; $("#allow").focus();
+      if (document.hidden) notify("AETHER needs your approval", items[0].prompt.split("\n")[0]);
+    } else if (!items.length && S.pendingId) { $("#approval").hidden = true; S.pendingId = null; }
+  } catch {}
+}
+async function answerPending(allow) {
+  $("#approval").hidden = true;
+  if (S.pendingId) await api(`/api/pending/${S.pendingId}?allow=${allow}`, { method: "POST" }).catch(() => {});
+  S.pendingId = null;
+}
+$("#allow").onclick = () => answerPending(true); $("#deny").onclick = () => answerPending(false);
+
+function notify(title, body) {
+  if (window.Notification && Notification.permission === "granted") new Notification(title, { body });
+}
+async function pollNotifications() {
+  try {
+    const r = await api("/api/notifications");
+    for (const n of r.items) { toast(n.title, n.body, "proactive", 15000); if (document.hidden) notify("AETHER · " + n.title, n.body); }
+  } catch {}
+}
+
+// ------------------------------------------------------------------ voice helpers
+let audioEl = null;
+async function speak(text) {
+  try {
+    const r = await api("/api/speak", { method: "POST", body: { text } });
+    const url = URL.createObjectURL(await r.blob());
+    if (audioEl) audioEl.pause();
+    audioEl = new Audio(url); audioEl.play();
+  } catch (e) { toast("Voice is not set up", e.message + "\nSet [voice].tts_voice_path (scripts/get_model.py voice).", "error"); }
+}
+
+// ------------------------------------------------------------------ chat
+const PIPE = [
+  ["perceive", "Perceive", "mood and topic"], ["interpret", "Interpret", "what you want"], ["retrieve", "Retrieve", "memory, documents, web"],
+  ["reason", "Reason", "facts and rules"], ["act", "Act", "tools, if needed"], ["generate", "Write", "the answer"], ["verify", "Verify", "against known facts"],
+];
+
+const Chat = {
+  root: null,
+  el() { if (!this.root) this.build(); this.loadConvos(); return this.root; },
+  build() {
+    const r = this.root = h(`<div class="chat">
+      <aside class="convos">
+        <div class="convos-head"><button class="primary" id="new-chat">${icon("plus")}New chat</button></div>
+        <input class="field convos-search" id="convo-q" placeholder="Search conversations">
+        <div class="convo-list" id="convo-list"></div>
+      </aside>
+      <section class="stage">
+        <div class="stage-bar">
+          <button class="icon-btn" id="toggle-convos" title="Conversations">${icon("chat")}</button>
+          <button class="icon-btn" id="toggle-mind" title="Show how AETHER is thinking">${icon("panel")}</button>
+        </div>
+        <div id="log"></div>
+        <div class="composer-wrap">
+          <div class="composer" id="composer">
+            <div class="attach" id="attach" hidden></div>
+            <textarea id="t" rows="1" placeholder="Talk to AETHER…"></textarea>
+            <div class="bar">
+              <button class="icon-btn" id="img-btn" title="Attach an image">${icon("image")}</button>
+              <button class="icon-btn" id="mic" title="Hold to talk (or press and release)">${icon("mic")}</button>
+              <input type="file" id="img-in" accept="image/*" hidden>
+              <span class="hint">Enter to send · Shift+Enter new line · Ctrl+K commands</span>
+              <button class="send" id="send" title="Send">${icon("send")}</button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <aside class="mind" id="mind"></aside>
+    </div>`);
+    this.log = $("#log", r); this.t = $("#t", r); this.mind = $("#mind", r);
+    this.applyLayout();
+    $("#toggle-mind", r).onclick = () => { S.showMind = !S.showMind; store.set("showMind", S.showMind); this.applyLayout(); };
+    $("#toggle-convos", r).onclick = () => { S.showConvos = !S.showConvos; store.set("showConvos", S.showConvos); this.applyLayout(); };
+    $("#new-chat", r).onclick = () => this.newChat();
+    $("#convo-q", r).oninput = (e) => this.loadConvos(e.target.value);
+    this.t.addEventListener("input", () => this.autosize());
+    this.t.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); this.send(); } });
+    $("#send", r).onclick = () => this.send();
+    $("#img-btn", r).onclick = () => $("#img-in", r).click();
+    $("#img-in", r).onchange = e => e.target.files[0] && this.attach(e.target.files[0]);
+    const comp = $("#composer", r);
+    comp.addEventListener("dragover", e => { e.preventDefault(); comp.classList.add("drag"); });
+    comp.addEventListener("dragleave", () => comp.classList.remove("drag"));
+    comp.addEventListener("drop", e => { e.preventDefault(); comp.classList.remove("drag"); const f = [...e.dataTransfer.files].find(f => f.type.startsWith("image/")); if (f) this.attach(f); });
+    this.t.addEventListener("paste", e => { const f = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith("image/")); if (f) { e.preventDefault(); this.attach(f); } });
+    this.setupMic($("#mic", r));
+    this.log.addEventListener("click", e => {
+      const c = e.target.closest("[data-copy]");
+      if (c) { navigator.clipboard.writeText(c.parentElement.querySelector("code").textContent); c.textContent = "copied"; setTimeout(() => c.textContent = "copy", 1200); }
+    });
+    this.renderMind(null);
+    this.hero();
+  },
+  applyLayout() {
+    this.root.classList.toggle("no-mind", !S.showMind); this.root.classList.toggle("no-convos", !S.showConvos);
+    $("#toggle-mind", this.root).classList.toggle("on", S.showMind); $("#toggle-convos", this.root).classList.toggle("on", S.showConvos);
+  },
+  autosize() { this.t.style.height = "auto"; this.t.style.height = Math.min(220, this.t.scrollHeight) + "px"; },
+  async hero() {
+    const hour = new Date().getHours();
+    const greet = hour < 5 ? "Burning the midnight oil" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+    const el = h(`<div class="hero">
+      <div class="reactor" id="reactor"><i class="r1"></i><i class="r2"></i><i class="r3"></i><i class="r4"></i></div>
+      <h1>${greet}.</h1><p>Everything stays on this PC. What are we doing?</p>
+      <div class="hero-brief" id="hero-brief"></div>
+      <div class="suggest">
+        <button data-p="Give me a quick plan for today based on my reminders and goals."><b>Plan my day</b><span>reminders, goals, priorities</span></button>
+        <button data-p="What do you know about me so far? Be specific and tell me how you learned each thing."><b>What do you know about me?</b><span>memories and facts, with sources</span></button>
+        <button data-p="I'm feeling stressed and could use a moment."><b>I need a moment</b><span>companion mode</span></button>
+        <button data-p="Research the latest on solid-state batteries and give me a cited brief."><b>Research something</b><span>web + your documents, cited</span></button>
+        <button data-p="Summarize the most important notes in my documents folder."><b>Summarize my notes</b><span>answers from your files</span></button>
+        <button data-p="Optimize my week: essay:3:5:Wed; gym:1:3:Sun; slides:2:4:Fri; reading:2:2:Sun"><b>Optimize my week</b><span>metaheuristic scheduling</span></button>
+      </div></div>`);
+    $$(".suggest button", el).forEach(b => b.onclick = () => { this.t.value = b.dataset.p; this.send(); });
+    this.log.replaceChildren(el);
+    try {
+      const b = await api("/api/brief");
+      const lines = b.text.split("\n").slice(1).join("\n");
+      if (lines && !/Nothing scheduled/.test(lines)) $("#hero-brief", el).textContent = lines;
+    } catch {}
+  },
+  async loadConvos(q = "") {
+    const list = this.root && $("#convo-list", this.root); if (!list) return;
+    try {
+      if (q.trim()) {
+        const hits = await api("/api/search?q=" + encodeURIComponent(q));
+        list.innerHTML = `<div class="convo-group">Matches</div>` + (hits.conversations.map(c => `<div class="convo" data-s="${esc(c.session)}"><span class="t" title="${esc(c.snippet)}">${esc(c.title || c.snippet)}</span></div>`).join("") || `<div class="empty">No matches</div>`);
+      } else {
+        const { current, items } = await api("/api/conversations");
+        S.session = current;
+        const groups = { Pinned: [], Today: [], "This week": [], Older: [] };
+        const now = Date.now() / 1000;
+        for (const c of items) (c.pinned ? groups.Pinned : now - c.updated < 86400 ? groups.Today : now - c.updated < 604800 ? groups["This week"] : groups.Older).push(c);
+        list.innerHTML = Object.entries(groups).filter(([, v]) => v.length).map(([g, v]) => `<div class="convo-group">${g}</div>` + v.map(c =>
+          `<div class="convo ${c.session === current ? "active" : ""}" data-s="${esc(c.session)}"><span class="t">${esc(c.title)}</span>
+            <span class="acts"><button data-pin="${c.pinned ? 0 : 1}" title="${c.pinned ? "Unpin" : "Pin"}">${icon("pin")}</button><button data-del title="Delete">${icon("trash")}</button></span></div>`).join("")).join("")
+          || `<div class="empty">Your conversations will appear here.</div>`;
+      }
+      $$(".convo", list).forEach(el => el.onclick = async (e) => {
+        const s = el.dataset.s;
+        if (e.target.closest("[data-del]")) { if (confirm("Delete this conversation? Memories learned from it stay.")) { await api("/api/conversations/" + s, { method: "DELETE" }); if (s === S.session) this.hero(); this.loadConvos(); } return; }
+        const pin = e.target.closest("[data-pin]");
+        if (pin) { await api("/api/conversations/" + s, { method: "PATCH", body: { pinned: pin.dataset.pin === "1" } }); this.loadConvos(); return; }
+        this.open(s);
+      });
+    } catch {}
+  },
+  async newChat() { await api("/api/conversations", { method: "POST" }); this.hero(); this.renderMind(null); this.loadConvos(); this.t.focus(); },
+  async open(session) {
+    const { turns } = await api("/api/conversations/" + session);
+    this.log.replaceChildren();
+    for (const t of turns) t.role === "user" ? this.addYou(t.text) : this.addAI(t.text, { final: true, t: t.t });
+    this.renderMind(null); this.loadConvos(); this.log.scrollTop = 1e9;
+  },
+  clearHero() { if ($(".hero", this.log)) this.log.replaceChildren(); },
+  addYou(text, img) {
+    this.clearHero();
+    const el = h(`<div class="msg you"><div class="bubble"></div></div>`);
+    $(".bubble", el).textContent = text;
+    if (img) $(".bubble", el).prepend(h(`<img src="${img}" style="max-width:220px;border-radius:10px;display:block;margin-bottom:6px">`));
+    this.log.appendChild(el); this.log.scrollTop = 1e9;
+  },
+  addAI(text = "", { final = false, t } = {}) {
+    const el = h(`<div class="msg ai"><div class="who"><span class="mini-orb"></span>AETHER</div><div class="tools"></div><div class="body md"></div><div class="notices"></div>
+      <div class="foot"><button class="icon-btn" data-a="copy" title="Copy">${icon("copy")}</button><button class="icon-btn" data-a="speak" title="Read aloud">${icon("speak")}</button>
+      <button class="icon-btn" data-a="up" title="Good answer">${icon("up")}</button><button class="icon-btn" data-a="down" title="Bad answer">${icon("down")}</button><span class="meta"></span></div></div>`);
+    el._text = text;
+    $(".body", el).innerHTML = text ? markdown(text) : `<div class="thinking-line"><span class="dots"><span></span><span></span><span></span></span><span class="label">Thinking</span></div>`;
+    if (t) $(".meta", el).textContent = new Date(t * 1000).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" });
+    $(".foot", el).onclick = async e => {
+      const a = e.target.closest("[data-a]")?.dataset.a; if (!a) return;
+      if (a === "copy") { navigator.clipboard.writeText(el._text); toast("Copied"); }
+      if (a === "speak") speak(el._text);
+      if (a === "up" || a === "down") {
+        await api("/api/feedback", { method: "POST", body: { value: a === "up" ? 1 : -1, turn_id: el._turn || null } });
+        $$('[data-a="up"],[data-a="down"]', el).forEach(b => b.classList.toggle("on", b.dataset.a === a));
+        toast(a === "up" ? "Thanks, noted" : "Noted. It counts toward self-improvement.");
+      }
+    };
+    if (!final) $(".foot", el).style.display = "none";
+    this.log.appendChild(el); this.log.scrollTop = 1e9;
+    return el;
+  },
+  attach(file) {
+    this.image = file;
+    const url = URL.createObjectURL(file);
+    const a = $("#attach", this.root); a.hidden = false;
+    a.innerHTML = `<div class="thumb"><img src="${url}" alt=""><button title="Remove">✕</button></div>`;
+    $("button", a).onclick = () => { this.image = null; a.hidden = true; a.innerHTML = ""; };
+    this.imageUrl = url; this.t.placeholder = "Ask something about the image…"; this.t.focus();
+  },
+  setBusy(b) {
+    S.busy = b; document.body.classList.toggle("busy", b);
+    $("#send", this.root).disabled = b; $("#reactor")?.classList.toggle("busy", b);
+  },
+  async send() {
+    const text = this.t.value.trim();
+    if (S.busy || (!text && !this.image)) return;
+    this.t.value = ""; this.autosize();
+    if (this.image) return this.sendImage(text || "What is in this image?");
+    this.addYou(text);
+    const el = this.addAI();
+    const body = $(".body", el), label = $(".label", el);
+    this.setBusy(true);
+    const live = { stages: {}, tools: [], route: [] };
+    this.renderMind(null, live);
+    let acc = "", raf = 0;
+    const paint = () => {
+      raf = 0; body.innerHTML = markdown(acc);
+      let tail = body; while (tail.lastElementChild && !/^(BR|SPAN|BUTTON)$/.test(tail.lastElementChild.tagName)) tail = tail.lastElementChild;
+      tail.insertAdjacentHTML("beforeend", `<span class="caret"></span>`); this.stick();
+    };
+    try {
+      await streamChat(text, (kind, d) => {
+        if (kind === "stage") {
+          live.stages[d.name] = d; if (!d.done && label) label.textContent = d.label + "…";
+          if (d.name === "retrieve" && d.done) live.route = d.routes;
+          this.renderMind(null, live);
+        } else if (kind === "tool") {
+          if (d.running) { $(".tools", el).appendChild(h(`<span class="chip accent" data-tool="${esc(d.tool)}">⚙ ${esc(d.tool)}…</span>`)); live.stages.act = { name: "act", label: `Using ${d.tool}` }; }
+          else { const c = $$(`.tools [data-tool="${CSS.escape(d.tool)}"]`, el).pop(); if (c) { c.className = "chip " + (d.ok ? "good" : "bad"); c.textContent = `${d.ok ? "✓" : "✕"} ${d.tool}${d.decision === "declined" ? " (declined)" : d.decision === "deny" ? " (blocked)" : ""}`; c.title = d.preview || ""; }
+                 live.tools.push(d); live.stages.act = { name: "act", done: true }; }
+          this.renderMind(null, live);
+        } else if (kind === "token") { acc += d.text; if (!raf) raf = requestAnimationFrame(paint); }
+        else if (kind === "replace") { acc = d.text; }
+        else if (kind === "done") {
+          cancelAnimationFrame(raf); el._text = d.text; el._turn = d.turn_id;
+          body.innerHTML = markdown(d.text);
+          const n = $(".notices", el);
+          d.notices.forEach(x => n.appendChild(h(`<div class="notice ${/^Security/.test(x) ? "sec" : ""}">${esc(x)}</div>`)));
+          $(".foot", el).style.display = ""; $(".meta", el).textContent = `${(d.state.latency_ms / 1000).toFixed(1)} s · ${d.state.route.join(" + ") || "direct"}`;
+          S.lastState = d.state; this.renderMind(d.state, live);
+          if (S.autoSpeak) speak(d.text);
+        } else if (kind === "error") { body.innerHTML = `<div class="notice sec">${esc(d.message)}</div>`; }
+      });
+    } catch (e) { body.innerHTML = `<div class="notice sec">${esc(e.message)}</div>`; }
+    this.setBusy(false); this.stick(); this.loadConvos(); refreshStatus();
+  },
+  stick() { const l = this.log; if (l.scrollHeight - l.scrollTop - l.clientHeight < 240) l.scrollTop = 1e9; },
+  async sendImage(question) {
+    const url = this.imageUrl, file = this.image;
+    this.image = null; $("#attach", this.root).hidden = true; $("#attach", this.root).innerHTML = ""; this.t.placeholder = "Talk to AETHER…";
+    this.addYou(question, url);
+    const el = this.addAI(); $(".label", el).textContent = "Looking at the image (this runs on the CPU, give it a moment)…";
+    this.setBusy(true);
+    try {
+      const fd = new FormData(); fd.append("file", file); fd.append("question", question);
+      const r = await api("/api/image", { method: "POST", body: fd });
+      el._text = r.text; $(".body", el).innerHTML = markdown(r.text); $(".foot", el).style.display = "";
+    } catch (e) { $(".body", el).innerHTML = `<div class="notice sec">${esc(e.message)}. Set [vision].model_path and mmproj_path (scripts/get_model.py vision).</div>`; }
+    this.setBusy(false);
+  },
+  setupMic(btn) {
+    let rec = null, chunks = [], started = 0;
+    const start = async () => {
+      if (rec || S.busy) return;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        rec = new MediaRecorder(stream); chunks = []; started = Date.now();
+        rec.ondataavailable = e => chunks.push(e.data);
+        rec.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop()); btn.classList.remove("rec"); $("#reactor")?.classList.remove("listen");
+          const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" }); rec = null;
+          if (blob.size < 2000) return;
+          try {
+            const fd = new FormData(); fd.append("file", blob, "speech.webm");
+            const r = await api("/api/transcribe", { method: "POST", body: fd });
+            if (r.text) { this.t.value = r.text; this.send(); } else toast("I didn't catch that");
+          } catch (e) { toast("Speech-to-text is not available", e.message + "\nInstall the voice extra: pip install -e .[voice]", "error"); }
+        };
+        rec.start(); btn.classList.add("rec"); $("#reactor")?.classList.add("listen");
+      } catch (e) { toast("Microphone blocked", "Allow microphone access for 127.0.0.1 in the browser.", "error"); }
+    };
+    const stop = () => { if (rec && rec.state === "recording") rec.stop(); };
+    btn.addEventListener("pointerdown", e => { e.preventDefault(); rec ? stop() : start(); });
+    btn.addEventListener("pointerup", () => { if (rec && Date.now() - started > 600) stop(); });
+    this.toggleMic = () => (rec ? stop() : start());
+  },
+  renderMind(state, live) {
+    const m = this.mind; if (!m) return;
+    const st = live?.stages || {};
+    const steps = PIPE.map(([k, name, sub]) => {
+      const s = st[k]; const cls = s ? (s.done ? "done" : "run") : (state ? "done" : "");
+      let detail = sub;
+      if (s?.done && k === "interpret") detail = `${s.intent} · ${Math.round(s.confidence * 100)}% sure`;
+      if (s?.done && k === "retrieve") detail = s.routes.length ? s.routes.join(" + ") + (s.documents ? ` · ${s.documents} doc chunks` : "") + (s.memories ? ` · ${s.memories} memories` : "") : "no lookup needed";
+      if (s?.done && k === "reason") detail = `${s.facts} facts in play` + (s.contradictions?.length ? ` · ${s.contradictions.length} conflict` : "");
+      if (k === "act" && live?.tools.length) detail = live.tools.map(t => `${t.ok ? "✓" : "✕"} ${t.tool}`).join(", ");
+      if (k === "act" && !s && (state || st.generate)) return `<div class="step"><span class="node"></span><div><b>${name}</b><small>no tools needed</small></div></div>`;
+      if (s?.done && k === "verify") detail = s.revised ? "corrected a conflict with known facts" : "consistent";
+      if (s?.done && k === "perceive") detail = `${s.wellness} · ${s.topic}`;
+      return `<div class="step ${cls}"><span class="node"></span><div><b>${name}</b><small>${esc(detail)}</small></div></div>`;
+    }).join("");
+    const list = (title, xs, cls = "") => xs && xs.length ? `<h4>${title}</h4><div class="list ${cls}">${xs.slice(0, 12).map(x => `<div>${esc(x)}</div>`).join("")}</div>` : "";
+    const s = state;
+    m.innerHTML = `<h4>Thinking pipeline</h4><div class="pipeline">${steps}</div>` + (s ? `
+      <h4>This turn</h4>
+      <div class="kv stack"><span>Goal</span><span>${esc(s.current_goal || "–")}</span></div>
+      <div class="kv"><span>Topic</span><span>${esc(s.active_topic)}</span></div>
+      <div class="kv"><span>Mood read</span><span>${esc(s.wellness)}</span></div>
+      <div class="kv"><span>Time</span><span>${(s.latency_ms / 1000).toFixed(1)} s</span></div>
+      <div class="kv"><span>Confidence</span><span>${Math.round(s.confidence * 100)}%</span></div><div class="gauge"><i style="width:${Math.round(s.confidence * 100)}%"></i></div>`
+      + list("Facts used", s.known_facts) + list("Contradictions", s.contradictions, "bad") + list("Uncertain", s.uncertain_hypotheses) + list("Tool calls", s.tool_log)
+      : (live ? "" : `<p class="muted" style="font-size:13px;margin-top:16px">Send a message to watch each stage: what AETHER understood, where it looked, which facts and rules it used, and whether it had to correct itself.</p>`));
+  },
+};
+
+async function streamChat(text, on) {
+  const r = await fetch("/api/chat/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+  if (!r.ok || !r.body) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n\n")) >= 0) {
+      const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+      const ev = /^event: (.*)$/m.exec(chunk)?.[1], data = /^data: (.*)$/m.exec(chunk)?.[1];
+      if (ev && data) on(ev, JSON.parse(data));
+    }
+  }
+}
+
+// ------------------------------------------------------------------ pages
+const RENDER = {};
+
+RENDER.today = async (p) => {
+  const [b, props, m] = await Promise.all([api("/api/brief"), api("/api/proposals"), api("/api/metrics")]);
+  const waiting = props.filter(x => x.status === "proposed");
+  const hour = new Date().getHours();
+  p.innerHTML = `<div class="page-head"><div class="grow"><h1>${hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"}</h1>
+      <p>${new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}</p></div>
+      <button class="primary" id="plan">Plan my day with AETHER</button></div>
+    <div class="grid three" style="margin-bottom:16px">
+      <div class="card stat"><b>${b.reminders.length}</b><span>open reminders</span></div>
+      <div class="card stat"><b>${b.goals.filter(g => ["running", "pending"].includes(g.status)).length}</b><span>goals in progress</span></div>
+      <div class="card stat"><b>${m.turns || 0}</b><span>messages this week</span></div>
+      <div class="card stat"><b>${waiting.length}</b><span>improvements waiting for you</span></div>
+    </div>
+    <div class="grid two">
+      <div class="card"><h3>Brief</h3><div class="md">${markdown(b.text)}</div></div>
+      <div class="card"><h3><span class="grow">Reminders</span></h3><div id="rem"></div>
+        <div class="row" style="margin-top:12px"><input class="field" id="rem-text" placeholder="Remind me to…" style="flex:2"><input class="field" id="rem-when" placeholder="when (friday, 2026-12-01)" style="flex:1"><button class="ghost" id="rem-add">Add</button></div></div>
+      <div class="card"><h3>Goals</h3>${b.goals.map(g => `<div class="item"><div class="grow">${esc(g.text)}<div class="meta">#${g.id}</div></div><span class="chip ${g.status === "done" ? "good" : g.status === "failed" ? "bad" : "accent"}">${g.status}</span></div>`).join("") || `<div class="empty">No goals yet. Ask AETHER to work on something in the background.</div>`}</div>
+      <div class="card"><h3>Self-improvement</h3>${waiting.map(x => `<div class="item"><div class="grow">${esc(x.title)}<div class="meta">${esc(x.rationale)}</div></div></div>`).join("") || `<div class="empty">Nothing waiting for your approval.</div>`}
+        ${waiting.length ? `<button class="ghost" onclick="location.hash='self'">Review in Self</button>` : ""}</div>
+    </div>`;
+  const rem = $("#rem", p);
+  rem.innerHTML = b.reminders.map(r => `<div class="item"><div class="grow">${esc(r.text)}<div class="meta">due ${esc(r.due)}</div></div><div class="actions"><button class="ghost" data-r="${r.id}" data-s="done">Done</button><button class="icon-btn" data-r="${r.id}" data-s="dismissed" title="Dismiss">✕</button></div></div>`).join("") || `<div class="empty">Nothing due. Say "remind me to…" in chat or add one here.</div>`;
+  $$("[data-r]", rem).forEach(x => x.onclick = async () => { await api(`/api/reminders/${x.dataset.r}?status=${x.dataset.s}`, { method: "POST" }); go("today"); });
+  $("#rem-add", p).onclick = async () => {
+    const text = $("#rem-text", p).value.trim(); if (!text) return;
+    try { const r = await api("/api/reminders", { method: "POST", body: { text, when: $("#rem-when", p).value.trim() || "tomorrow" } }); toast("Reminder set", `${r.text} · ${r.due}`); } catch (e) { toast("Couldn't add", e.message, "error"); }
+    go("today");
+  };
+  $("#plan", p).onclick = () => { go("chat"); Chat.t.value = "Give me a quick plan for today based on my reminders and goals."; Chat.send(); };
+};
+
+RENDER.memory = async (p, tab = store.get("memTab", "memories")) => {
+  p.innerHTML = `<div class="page-head"><div class="grow"><h1>Memory</h1><p>Everything AETHER remembers, likes and has noticed. All of it can be corrected or deleted.</p></div>
+    <div class="tabs" id="mt">${["memories", "preferences", "patterns"].map(t => `<button data-t="${t}" class="${t === tab ? "active" : ""}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}</div></div><div id="mb"></div>`;
+  $$("#mt button", p).forEach(b => b.onclick = () => { store.set("memTab", b.dataset.t); RENDER.memory(p, b.dataset.t); });
+  const mb = $("#mb", p);
+  if (tab === "memories") {
+    const layers = ["all", "semantic", "episodic", "procedural", "document", "observation", "prospective"];
+    mb.innerHTML = `<div class="row" style="margin-bottom:14px"><input class="field" id="mq" placeholder="Search memories (hybrid search)" style="flex:1;min-width:220px">
+      <div class="tabs" id="ml">${layers.map((l, i) => `<button data-l="${l}" class="${i ? "" : "active"}">${l}</button>`).join("")}</div></div><div class="card" id="mlist"></div>`;
+    const show = async (layer, q) => {
+      const items = q ? (await api("/api/search?q=" + encodeURIComponent(q))).memories : await api("/api/memories" + (layer && layer !== "all" ? "?layer=" + layer : ""));
+      $("#mlist", mb).innerHTML = items.map(m => `<div class="item"><div class="grow">${esc(m.text.slice(0, 400))}
+        <div class="meta"><span class="chip">${esc(m.layer)}</span> ${m.source ? `· ${esc(m.source)}` : ""} ${m.confidence != null ? `· conf ${m.confidence.toFixed(2)}` : ""} ${m.score ? `· match ${m.score}` : ""} ${m.meta?.path || m.path ? `· ${esc(m.meta?.path || m.path)}` : ""}</div></div>
+        <div class="actions"><button class="icon-btn" data-f="${m.id}" title="Forget">${icon("trash")}</button></div></div>`).join("") || `<div class="empty">Nothing here yet.</div>`;
+      $$("[data-f]", mb).forEach(b => b.onclick = async () => { await api("/api/memories/" + b.dataset.f, { method: "DELETE" }); b.closest(".item").remove(); toast("Forgotten"); });
+    };
+    let layer = "all", timer;
+    $$("#ml button", mb).forEach(b => b.onclick = () => { $$("#ml button", mb).forEach(x => x.classList.toggle("active", x === b)); layer = b.dataset.l; show(layer, ""); $("#mq", mb).value = ""; });
+    $("#mq", mb).oninput = e => { clearTimeout(timer); timer = setTimeout(() => show(layer, e.target.value.trim()), 250); };
+    show("all", "");
+  } else if (tab === "preferences") {
+    const [prefs, tl] = await Promise.all([api("/api/preferences"), api("/api/preferences/timeline")]);
+    mb.innerHTML = `<div class="grid two"><div class="card"><h3>How AETHER talks to you</h3>
+      <div class="row" style="margin-bottom:8px"><input class="field" id="np" placeholder="Add your own rule, e.g. Use metric units" style="flex:1"><button class="ghost" id="addp">Add</button></div>
+      ${prefs.map(x => `<div class="item"><button class="switch ${x.active ? "on" : ""}" data-k="${esc(x.key)}" data-a="${x.active ? "off" : "on"}" title="${x.active ? "Disable" : "Enable"}"></button>
+        <div class="grow">${esc(x.instruction)}<div class="meta">${esc(x.source)} · confidence ${x.confidence.toFixed(2)}</div></div>
+        <div class="actions"><button class="icon-btn" data-k="${esc(x.key)}" data-a="delete" title="Delete">${icon("trash")}</button></div></div>`).join("") || `<div class="empty">Tell AETHER what you like or hate about its replies ("stop the long intros").</div>`}</div>
+      <div class="card"><h3>Timeline</h3>${tl.slice(0, 40).map(e => `<div class="item"><div class="grow">${esc(e.key)}<div class="meta">${esc(e.change)} · ${ago(e.t)}</div></div></div>`).join("") || `<div class="empty">No changes yet.</div>`}</div></div>`;
+    $("#addp", mb).onclick = async () => { const v = $("#np", mb).value.trim(); if (!v) return; await api("/api/preferences", { method: "POST", body: { key: "", action: "add", value: v } }); RENDER.memory(p, tab); };
+    $$("[data-k]", mb).forEach(b => b.onclick = async () => { await api("/api/preferences", { method: "POST", body: { key: b.dataset.k, action: b.dataset.a } }); RENDER.memory(p, tab); });
+  } else {
+    const obs = await api("/api/observations");
+    mb.innerHTML = `<div class="card"><h3><span class="grow">Patterns AETHER noticed</span><button class="ghost" id="an">Look for new patterns</button></h3>
+      <p class="muted" style="margin-top:-4px">These are guesses, never facts. AETHER only uses the ones you confirm, and only to help you, never to pressure you.</p>
+      ${obs.map(o => `<div class="item"><div class="grow">${esc(o.text)}<div class="meta"><span class="chip ${o.status === "confirmed" ? "good" : o.status === "rejected" ? "bad" : "warn"}">${o.status}</span> · ${esc(o.kind)} · conf ${o.confidence.toFixed(2)} · ${esc((o.evidence || []).slice(-1)[0] || "")}</div></div>
+        <div class="actions"><button class="ghost" data-o="${o.id}" data-s="confirmed">That's right</button><button class="ghost" data-o="${o.id}" data-s="rejected">Not true</button><button class="icon-btn" data-o="${o.id}" data-s="delete">${icon("trash")}</button></div></div>`).join("") || `<div class="empty">No patterns yet. They need a few weeks of conversations.</div>`}</div>`;
+    $("#an", mb).onclick = async () => { const r = await api("/api/observations/analyse", { method: "POST" }); toast(r.proposed.length ? `${r.proposed.length} new pattern(s)` : "No new patterns"); RENDER.memory(p, tab); };
+    $$("[data-o]", mb).forEach(b => b.onclick = async () => { await api(`/api/observations/${b.dataset.o}?status=${b.dataset.s}`, { method: "POST" }); RENDER.memory(p, tab); });
+  }
+};
+
+RENDER.knowledge = async (p) => {
+  p.className = ""; p.style.height = "100%";
+  p.innerHTML = `<div class="kg"><div class="kg-canvas"><canvas id="kgc"></canvas>
+      <div class="kg-head"><input class="field" id="kgq" placeholder="Find an entity" style="max-width:260px"><span class="chip" id="kgn"></span></div>
+      <div class="kg-legend"><span><i style="background:var(--line2)"></i>stated fact</span><span><i style="border-top:2px dashed var(--accent2)"></i>derived by rules</span></div></div>
+    <aside class="kg-side" id="kgs"></aside></div>`;
+  const [g, facts, rules] = await Promise.all([api("/api/graph"), api("/api/facts"), api("/api/rules")]);
+  $("#kgn", p).textContent = `${g.nodes.length} entities · ${g.links.length} links`;
+  const side = $("#kgs", p);
+  const showSide = (node) => {
+    const rel = node ? g.links.filter(l => l.source === node.id || l.target === node.id) : [];
+    side.innerHTML = (node ? `<h3 style="font:600 20px var(--display);margin:0 0 4px">${esc(node.id)}</h3><p class="muted" style="margin:0 0 14px">${rel.length} relations</p>
+      ${rel.map(l => `<div class="item"><div class="grow">${esc(l.source)} <span class="chip ${l.kind === "derived" ? "violet" : "accent"}">${esc(l.label.replace(/_/g, " "))}</span> ${esc(l.target)}
+        <div class="meta">${l.kind === "derived" ? `<a href="#" data-why="${esc(l.source)}|${esc(l.label)}|${esc(l.target)}">why?</a>` : "stated"}</div><pre class="out" hidden></pre></div>
+        ${l.id ? `<div class="actions"><button class="icon-btn" data-x="${l.id}" title="Retract">${icon("trash")}</button></div>` : ""}</div>`).join("")}` : `<h3 style="font:600 18px var(--display);margin:0 0 6px">Knowledge graph</h3>
+      <p class="muted" style="margin:0 0 12px">Facts you've told AETHER, plus what its rules derive from them. Click a node.</p>`)
+      + `<div class="card" style="margin-top:18px;padding:14px"><h3>Ask with logic</h3><div class="row"><input class="field" id="lq" placeholder="parent_of(?p, riya) &amp; lives_in(?p, ?c)" style="flex:1"><button class="ghost" id="lqb">Ask</button></div><pre class="out" id="lqo" hidden></pre></div>
+      <div class="card" style="margin-top:14px;padding:14px"><h3>Your rules</h3>${rules.yours.map(r => `<div class="item"><div class="grow mono" style="font-size:12px">${esc(r)}</div><div class="actions"><button class="icon-btn" data-rr="${esc(r)}">${icon("trash")}</button></div></div>`).join("") || `<div class="muted" style="font-size:13px">None yet.</div>`}
+        <div class="row" style="margin-top:8px"><input class="field mono" id="nr" placeholder="works_at(?x,?o) &amp; located_in(?o,?c) -> works_in(?x,?c)" style="flex:1;font-size:12px"><button class="ghost" id="nrb">Add</button></div>
+        <details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-size:12px">${rules.all.length} built-in rules</summary>${rules.all.map(r => `<div class="mono muted" style="font-size:11.5px;padding:3px 0">${esc(r)}</div>`).join("")}</details></div>`;
+    $$("[data-why]", side).forEach(a => a.onclick = async (e) => { e.preventDefault(); const [s, pp, o] = a.dataset.why.split("|"); const r = await api(`/api/why?s=${encodeURIComponent(s)}&p=${encodeURIComponent(pp)}&o=${encodeURIComponent(o)}`); const pre = a.closest(".grow").querySelector("pre"); pre.hidden = false; pre.textContent = r.proof.join("\n"); });
+    $$("[data-x]", side).forEach(b => b.onclick = async () => { await api("/api/facts/" + b.dataset.x, { method: "DELETE" }); toast("Fact retracted"); RENDER.knowledge(p); });
+    $$("[data-rr]", side).forEach(b => b.onclick = async () => { await api("/api/rules", { method: "DELETE", body: { text: b.dataset.rr } }); RENDER.knowledge(p); });
+    $("#lqb", side).onclick = async () => { const o = $("#lqo", side); o.hidden = false; try { const r = await api("/api/ask", { method: "POST", body: { text: $("#lq", side).value } }); o.textContent = r.bindings.length ? r.bindings.map(b => JSON.stringify(b)).join("\n") : "No matches."; } catch (e) { o.textContent = e.message; } };
+    $("#nrb", side).onclick = async () => { try { const r = await api("/api/rules", { method: "POST", body: { text: $("#nr", side).value } }); toast("Rule added", `${r.derived} new facts derived` + (r.violations.length ? `, ${r.violations.length} constraint violations` : "")); RENDER.knowledge(p); } catch (e) { toast("Rule rejected", e.message, "error"); } };
+  };
+  S.graph = new GraphView($("#kgc", p), { onSelect: showSide });
+  S.graph.setData(g); showSide(null);
+  $("#kgq", p).oninput = e => { S.graph.filter = e.target.value; const n = g.nodes.find(n => e.target.value && n.id.toLowerCase().includes(e.target.value.toLowerCase())); if (n && e.target.value.length > 2) S.graph.focus(n.id); };
+  if (!g.nodes.length) side.insertAdjacentHTML("afterbegin", `<div class="notice">The graph is empty. Tell AETHER facts like "My sister Riya lives in Pune" and they appear here.</div>`);
+};
+
+RENDER.goals = async (p, sel) => {
+  const { goals, progress } = await api("/api/goals");
+  p.innerHTML = `<div class="page-head"><div class="grow"><h1>Goals</h1><p>Multi-step work AETHER runs in the background with agents, checkpoints and verification.</p></div></div>
+    <div class="card" style="margin-bottom:16px"><div class="row"><input class="field" id="ng" placeholder="e.g. Research three laptops under ₹80k for ML and compare them in a table" style="flex:1"><button class="primary" id="ngb">Start goal</button></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Starting a goal asks for approval. Every action inside it still goes through the policy engine.</p></div>
+    <div class="grid two"><div class="card"><h3>All goals</h3>${goals.map(g => `<div class="item" style="cursor:pointer" data-g="${g.id}"><div class="grow">${esc(g.text)}<div class="meta">#${g.id}</div></div><span class="chip ${g.status === "done" ? "good" : g.status === "failed" ? "bad" : "accent"}">${g.status}</span></div>`).join("") || `<div class="empty">No goals yet.</div>`}</div>
+    <div class="card" id="gd"><h3>Live progress</h3>${progress.slice().reverse().map(x => `<div class="item"><div class="grow mono" style="font-size:12px">${esc(x)}</div></div>`).join("") || `<div class="empty">Select a goal to see its task graph.</div>`}</div></div>`;
+  $("#ngb", p).onclick = async () => { const v = $("#ng", p).value.trim(); if (!v) return; try { const r = await api("/api/goals", { method: "POST", body: { text: v } }); toast("Goal queued", r.message); RENDER.goals(p); } catch (e) { toast("Couldn't start", e.message, "error"); } };
+  const detail = async (gid) => {
+    const g = await api("/api/goals/" + gid);
+    $("#gd", p).innerHTML = `<h3><span class="grow">Goal #${g.id}</span>${["running", "pending"].includes(g.status) ? `<button class="ghost" id="gc">Cancel</button>` : ""}</h3><p style="margin-top:-4px">${esc(g.text)}</p>
+      ${g.tasks.map(t => `<div class="task ${t.status}"><span class="s"></span><div><b style="font-weight:600">${esc(t.description)}</b><div class="meta muted" style="font-size:12px">${t.agent} · ${t.status} · attempt ${t.attempts}/${t.max_attempts}${t.success_criteria ? " · done when: " + esc(t.success_criteria) : ""}</div>
+        ${t.result ? `<details><summary class="muted" style="font-size:12px;cursor:pointer">result</summary><div class="md" style="font-size:13px">${markdown(t.result.slice(0, 3000))}</div></details>` : ""}</div></div>`).join("")}
+      ${g.report ? `<details style="margin-top:10px"><summary class="muted" style="cursor:pointer">Report</summary><pre class="out">${esc(g.report)}</pre></details>` : ""}`;
+    $("#gc", p) && ($("#gc", p).onclick = async () => { await api(`/api/goals/${gid}/cancel`, { method: "POST" }); toast("Cancelling"); detail(gid); });
+  };
+  $$("[data-g]", p).forEach(x => x.onclick = () => detail(x.dataset.g));
+  if (sel) detail(sel);
+};
+
+RENDER.lab = async (p) => {
+  const [cases, overrides] = await Promise.all([api("/api/eval"), api("/api/settings")]);
+  p.innerHTML = `<div class="page-head"><div class="grow"><h1>Lab</h1><p>Metaheuristic optimization and AETHER's self-tuning.</p></div></div>
+    <div class="grid two"><div class="card"><h3>Optimization workspace</h3>
+      <textarea class="field mono" id="ot" rows="4" placeholder="essay:3:5:Wed; gym:1:3:Sun; slides:2:4:Fri&#10;(name:hours:priority 1-5:deadline day)">essay:3:5:Wed; gym:1:3:Sun; slides:2:4:Fri; reading:2:2:Sun; taxes:2:4:Thu</textarea>
+      <div class="row" style="margin-top:10px"><input class="field" id="oh" value="4,4,4,4,4,6,6" title="Hours available per day, Mon to Sun" style="flex:1">
+        <select class="field" id="oa" style="flex:1"><option value="auto">Best plan (GA vs annealing)</option><option value="pareto">Trade-offs (NSGA-II)</option><option value="tabu">Tabu search</option><option value="exact">Exact solver</option></select>
+        <button class="primary" id="orun">Optimize</button></div><pre class="out" id="oout" hidden></pre></div>
+    <div class="card"><h3>Retrieval self-tuning</h3><p class="muted" style="margin-top:-4px;font-size:13px">Add messages and the memory that should come back (leave it empty for "nothing"). Particle swarm then searches for better search settings, and you approve the result.</p>
+      <input class="field" id="eq" placeholder="message, e.g. why does my flask app crash"><input class="field" id="ee" placeholder="memory text that should come back (empty = nothing)" style="margin-top:8px">
+      <div class="row" style="margin-top:10px"><button class="ghost" id="eadd">Add case</button><button class="primary" id="tune">Tune retrieval</button></div><pre class="out" id="tout" hidden></pre>
+      ${cases.map(c => `<div class="item"><div class="grow">${esc(c.query)}<div class="meta">expect: ${esc(c.expect || "nothing")}</div></div><div class="actions"><button class="icon-btn" data-e="${c.id}">${icon("trash")}</button></div></div>`).join("")}</div>
+    <div class="card"><h3>Learned settings</h3>${overrides.map(o => `<div class="item"><div class="grow mono" style="font-size:12.5px">${esc(o.section)}.${esc(o.key)} = ${esc(o.value)}<div class="meta">was ${esc(o.previous)} · ${esc(o.reason)}</div></div><button class="ghost" data-rs="${esc(o.section)}" data-rk="${esc(o.key)}">Revert</button></div>`).join("") || `<div class="empty">None. aether.toml values are in use.</div>`}</div></div>`;
+  $("#orun", p).onclick = async () => { const o = $("#oout", p); o.hidden = false; o.textContent = "Running…"; try { const r = await api("/api/optimize", { method: "POST", body: { tasks: $("#ot", p).value, hours_per_day: $("#oh", p).value, algorithm: $("#oa", p).value } }); o.textContent = r.text; } catch (e) { o.textContent = e.message; } };
+  $("#eadd", p).onclick = async () => { if (!$("#eq", p).value.trim()) return; await api("/api/eval", { method: "POST", body: { query: $("#eq", p).value, expect: $("#ee", p).value } }); RENDER.lab(p); };
+  $("#tune", p).onclick = async () => {
+    const o = $("#tout", p); o.hidden = false; o.textContent = "Tuning…";
+    try { const r = await api("/api/tune", { method: "POST" });
+      o.textContent = `F1 ${r.f1_before} → ${r.f1_after} on ${r.cases} cases\nproposed ${JSON.stringify(r.proposed)}`;
+      if (r.worth_applying && confirm("Apply the proposed retrieval settings?")) { await api("/api/settings", { method: "POST", body: { section: "memory", values: r.proposed, reason: `PSO tuning F1 ${r.f1_before}->${r.f1_after}` } }); RENDER.lab(p); }
+    } catch (e) { o.textContent = e.message; }
+  };
+  $$("[data-e]", p).forEach(b => b.onclick = async () => { await api("/api/eval/" + b.dataset.e, { method: "DELETE" }); RENDER.lab(p); });
+  $$("[data-rs]", p).forEach(b => b.onclick = async () => { await api(`/api/settings/revert?section=${b.dataset.rs}&key=${b.dataset.rk}`, { method: "POST" }); RENDER.lab(p); });
+};
+
+RENDER.self = async (p) => {
+  const [m, props, revs] = await Promise.all([api("/api/metrics"), api("/api/proposals"), api("/api/reviews")]);
+  const bars = (obj) => { const mx = Math.max(1, ...Object.values(obj)); return `<div class="bars">${Object.entries(obj).map(([k, v]) => `<div class="bar"><span>${esc(k || "direct")}</span><span class="track"><i style="width:${v / mx * 100}%"></i></span><span>${v}</span></div>`).join("")}</div>`; };
+  const pct = x => x == null ? "–" : Math.round(x * 100) + "%";
+  p.innerHTML = `<div class="page-head"><div class="grow"><h1>Self</h1><p>How AETHER has been doing over the last 7 days, and what it would change about itself.</p></div></div>
+    ${m.turns ? `<div class="grid three" style="margin-bottom:16px">
+      <div class="card stat"><b>${(m.latency_ms.median / 1000).toFixed(1)} s</b><span>median reply · p95 ${(m.latency_ms.p95 / 1000).toFixed(1)} s</span></div>
+      <div class="card stat"><b>${pct(m.tool_success_rate)}</b><span>tool success · ${m.denied_actions} blocked</span></div>
+      <div class="card stat"><b>${pct(m.verifier_revision_rate)}</b><span>answers corrected by the verifier</span></div>
+      <div class="card stat"><b>${m.feedback.positive} / ${m.feedback.negative}</b><span>👍 / 👎 from you</span></div></div>
+      <div class="grid two" style="margin-bottom:16px"><div class="card"><h3>Routes</h3>${bars(m.routes)}</div><div class="card"><h3>What you ask for</h3>${bars(m.intents)}</div></div>`
+      : `<div class="card empty" style="margin-bottom:16px">No turns measured yet. Chat for a while and this fills in.</div>`}
+    <div class="grid two"><div class="card"><h3>Proposals</h3>${props.filter(x => x.status === "proposed").map(x => `<div class="item"><div class="grow"><b style="font-weight:600">${esc(x.title)}</b><div class="meta">${esc(x.rationale)}</div></div>
+        <div class="row"><button class="primary" data-p="${x.id}" data-a="true">Approve</button><button class="ghost" data-p="${x.id}" data-a="false">Decline</button></div></div>`).join("") || `<div class="empty">Nothing to change right now.</div>`}
+      ${props.filter(x => x.status !== "proposed").slice(0, 8).map(x => `<div class="item"><div class="grow muted">${esc(x.title)}</div><span class="chip ${x.status === "applied" ? "good" : ""}">${x.status}</span></div>`).join("")}</div>
+    <div class="card"><h3>Self-reviews of finished goals</h3>${revs.map(r => `<div class="item"><div class="grow">Goal #${r.goal_id} · ${esc(r.status)}<div class="meta">${esc(r.went_well)} ${r.went_wrong && r.went_wrong !== "nothing" ? "· missed: " + esc(r.went_wrong) : ""}${r.lesson ? "<br>Lesson: " + esc(r.lesson) : ""}</div></div><span class="chip accent">${Math.round(r.score * 100)}%</span></div>`).join("") || `<div class="empty">No finished goals yet.</div>`}</div></div>`;
+  $$("[data-p]", p).forEach(b => b.onclick = async () => { try { const r = await api(`/api/proposals/${b.dataset.p}?approve=${b.dataset.a}`, { method: "POST" }); toast(r.message); } catch (e) { toast("Not applied", e.message, "error"); } RENDER.self(p); });
+};
+
+RENDER.activity = async (p) => {
+  const [audit, journal] = await Promise.all([api("/api/audit"), api("/api/journal")]);
+  p.innerHTML = `<div class="page-head"><div class="grow"><h1>Activity</h1><p>Every file, web and app access, every block and every approval. Nothing is hidden.</p></div><input class="field" id="af" placeholder="Filter" style="max-width:240px"></div>
+    <div class="grid two"><div class="card"><h3>Audit log</h3><div id="al"></div></div>
+    <div class="card"><h3><span class="grow">File changes</span><button class="ghost" id="undo">Undo last</button></h3>${journal.map(j => `<div class="item"><div class="grow mono" style="font-size:12px">${esc(j.op)} ${esc(j.src)}${j.dst ? " → " + esc(j.dst) : ""}<div class="meta">${j.undone ? "undone" : ""} ${j.t ? ago(j.t) : ""}</div></div></div>`).join("") || `<div class="empty">No file changes yet.</div>`}</div></div>`;
+  const draw = (f = "") => { $("#al", p).innerHTML = audit.filter(e => !f || JSON.stringify(e).toLowerCase().includes(f.toLowerCase())).slice(0, 150).map(e => `<div class="item"><span class="chip ${e.allowed ? "good" : "bad"}">${e.allowed ? "allowed" : "blocked"}</span><div class="grow">${esc(e.action)}<div class="meta">${esc(e.target)} · ${esc(e.reason)} · ${new Date(e.t * 1000).toLocaleString()}</div></div></div>`).join("") || `<div class="empty">Nothing yet.</div>`; };
+  draw(); $("#af", p).oninput = e => draw(e.target.value);
+  $("#undo", p).onclick = async () => { const r = await api("/api/undo", { method: "POST" }); toast(r.message); RENDER.activity(p); };
+};
+
+RENDER.settings = async (p) => {
+  const c = await api("/api/config");
+  const sliders = [["memory", "hybrid_alpha", "Meaning vs keywords in search", 0, 1, .05, c.memory.hybrid_alpha], ["memory", "rag_min_score", "How relevant a memory must be", .02, .8, .01, c.memory.rag_min_score],
+                   ["memory", "rag_top_k", "Items retrieved per answer", 2, 12, 1, c.memory.rag_top_k], ["llm", "temperature", "Creativity", 0, 1.2, .05, c.temperature],
+                   ["context", "topic_switch_threshold", "Topic switch sensitivity", .02, .4, .01, c.context.topic_switch_threshold]];
+  const tog = (id, on, label, note) => `<div class="item"><button class="switch ${on ? "on" : ""}" id="${id}"></button><div class="grow">${label}<div class="meta">${note}</div></div></div>`;
+  p.innerHTML = `<div class="page-head"><div class="grow"><h1>Settings</h1><p>Safe settings can be changed here. Security and folders live in aether.toml on purpose.</p></div></div>
+    <div class="grid two">
+      <div class="card"><h3>Appearance and voice</h3>
+        ${tog("s-theme", S.theme === "light", "Light theme", "Dark is the default")}
+        ${tog("s-speak", S.autoSpeak, "Read replies aloud", c.voice.tts ? "Uses your Piper voice" : "Set [voice].tts_voice_path first")}
+        ${tog("s-mind", S.showMind, "Show the thinking panel in chat", "Live pipeline, facts, tools")}
+        ${tog("s-notif", window.Notification && Notification.permission === "granted", "Desktop notifications", "For reminders and approvals while AETHER is in the background")}</div>
+      <div class="card"><h3>Behaviour</h3>${sliders.map(([sec, key, label, mn, mx, st, v]) => `<div style="padding:8px 0"><div class="kv"><span>${label}</span><span class="mono" id="v-${key}">${v}</span></div>
+        <input type="range" min="${mn}" max="${mx}" step="${st}" value="${v}" data-sec="${sec}" data-key="${key}" style="width:100%;accent-color:var(--accent)"></div>`).join("")}
+        <p class="muted" style="font-size:12px">Changes are saved as learned overrides and can be reverted in the Lab.</p></div>
+      <div class="card"><h3>Model</h3><div class="kv"><span>File</span><span class="mono">${esc(c.model || "not set")}</span></div><div class="kv"><span>GPU layers</span><span>${c.gpu_layers}</span></div>
+        <div class="kv"><span>Context</span><span>${c.context_tokens} tokens</span></div><div class="kv"><span>Speech-to-text</span><span>${esc(c.voice.stt_model)}</span></div><div class="kv"><span>Vision</span><span>${c.vision ? "configured" : "not set"}</span></div>
+        <p class="muted" style="font-size:12px">Change these in aether.toml, then restart. scripts\\tune_gpu.py finds the fastest GPU layer count.</p></div>
+      <div class="card"><h3>Security</h3>
+        <div class="kv"><span>Encryption at rest</span><span class="${c.security.encrypt_at_rest ? "good" : "warn"}">${c.security.encrypt_at_rest ? "on" : "off"}</span></div>
+        <div class="kv"><span>Web research</span><span>${c.security.network ? "on" : "off"}</span></div>
+        <div class="kv"><span>Screen reading</span><span>${c.security.screen_access ? "on (asks)" : "off"}</span></div>
+        <div class="kv"><span>App control</span><span>${c.security.ui_automation ? "on (asks)" : "off"}</span></div>
+        <div style="margin-top:8px" class="muted">Reads: ${c.security.allowed_read_roots.map(esc).join(", ") || "none"}<br>Writes: ${c.security.allowed_write_roots.map(esc).join(", ") || "none (read-only)"}</div></div>
+      <div class="card"><h3>Proactive</h3><div class="kv"><span>Enabled</span><span>${c.proactive.enabled ? "yes" : "no"}</span></div><div class="kv"><span>Quiet hours</span><span>${c.proactive.quiet_start} to ${c.proactive.quiet_end}</span></div>
+        <div class="kv"><span>Morning brief</span><span>${c.proactive.morning_brief || "off"}</span></div><div class="kv"><span>Max per hour</span><span>${c.proactive.max_per_hour}</span></div></div>
+      <div class="card"><h3>Tools (${c.tools.length})</h3>${c.tools.map(t => `<div class="item"><div class="grow"><span class="mono" style="font-size:12.5px">${esc(t.name)}</span><div class="meta">${esc(t.description)}</div></div><span class="chip">${esc(t.category)}</span></div>`).join("")}</div>
+      <div class="card"><h3>Keyboard</h3>${[["Ctrl K", "Command palette"], ["Ctrl 1-8", "Switch views"], ["Ctrl N", "New chat"], ["Ctrl .", "Toggle thinking panel"], ["Ctrl Shift V", "Talk"], ["Ctrl Shift X", "Emergency stop"], ["/", "Focus the message box"]].map(([k, d]) => `<div class="kv"><span>${d}</span><span><kbd>${k}</kbd></span></div>`).join("")}</div>
+    </div>`;
+  $("#s-theme", p).onclick = e => { S.theme = S.theme === "light" ? "dark" : "light"; store.set("theme", S.theme); document.documentElement.dataset.theme = S.theme; e.target.classList.toggle("on"); };
+  $("#s-speak", p).onclick = e => { S.autoSpeak = !S.autoSpeak; store.set("autoSpeak", S.autoSpeak); e.target.classList.toggle("on"); };
+  $("#s-mind", p).onclick = e => { S.showMind = !S.showMind; store.set("showMind", S.showMind); e.target.classList.toggle("on"); if (Chat.root) Chat.applyLayout(); };
+  $("#s-notif", p).onclick = async e => { if (!window.Notification) return toast("Notifications not supported here"); const r = await Notification.requestPermission(); e.target.classList.toggle("on", r === "granted"); };
+  $$("input[type=range]", p).forEach(r => {
+    r.oninput = () => $("#v-" + r.dataset.key, p).textContent = r.value;
+    r.onchange = async () => {
+      const v = r.dataset.key === "rag_top_k" ? parseInt(r.value) : parseFloat(r.value);
+      try { await api("/api/settings", { method: "POST", body: { section: r.dataset.sec, values: { [r.dataset.key]: v }, reason: "set in Settings" } }); toast("Saved", `${r.dataset.sec}.${r.dataset.key} = ${v}`); }
+      catch (e) { toast("Not saved", e.message, "error"); }
+    };
+  });
+};
+
+// ------------------------------------------------------------------ command palette
+const COMMANDS = [
+  ["New chat", "Start a fresh conversation", "plus", () => { go("chat"); Chat.newChat(); }],
+  ...Object.entries(VIEWS).map(([k, v]) => [`Go to ${v}`, "", { chat: "chat", today: "sun", memory: "brain", knowledge: "graph", goals: "target", lab: "flask", self: "pulse", activity: "shield", settings: "gear" }[k], () => go(k)]),
+  ["Toggle thinking panel", "Show or hide the live pipeline", "panel", () => { S.showMind = !S.showMind; store.set("showMind", S.showMind); Chat.root && Chat.applyLayout(); }],
+  ["Talk", "Push to talk (click the mic again to stop)", "mic", () => { go("chat"); Chat.toggleMic?.(); }],
+  ["Toggle theme", "Light or dark", "sun", () => { S.theme = S.theme === "light" ? "dark" : "light"; store.set("theme", S.theme); document.documentElement.dataset.theme = S.theme; }],
+  ["Emergency stop", "Block every computer action", "stop", () => $("#stop").click()],
+  ["Undo last file change", "", "trash", async () => toast((await api("/api/undo", { method: "POST" })).message)],
+  ["Look for new patterns about me", "", "brain", async () => { const r = await api("/api/observations/analyse", { method: "POST" }); toast(r.proposed.length ? `${r.proposed.length} new pattern(s)` : "No new patterns"); }],
+];
+const Palette = {
+  items: [], sel: 0, timer: 0,
+  open() { $("#palette").hidden = false; const q = $("#palette-q"); q.value = ""; q.focus(); this.update(""); },
+  close() { $("#palette").hidden = true; },
+  async update(q) {
+    const ql = q.toLowerCase();
+    let items = COMMANDS.filter(([t, s]) => !ql || (t + " " + s).toLowerCase().includes(ql)).map(([t, s, ic, fn]) => ({ group: "Commands", t, s, ic, fn }));
+    if (ql.length > 1 && !q.startsWith(">")) items.push({ group: "Chat", t: `Ask AETHER: “${q}”`, s: "", ic: "send", fn: () => { go("chat"); Chat.t.value = q; Chat.send(); } });
+    this.items = items; this.sel = 0; this.draw();
+    clearTimeout(this.timer);
+    if (ql.length > 2) this.timer = setTimeout(async () => {
+      try {
+        const r = await api("/api/search?q=" + encodeURIComponent(q));
+        const more = [
+          ...r.memories.slice(0, 5).map(m => ({ group: "Memories", t: m.text, s: m.layer, ic: "brain", fn: () => go("memory") })),
+          ...r.facts.slice(0, 5).map(f => ({ group: "Facts", t: `${f.s} ${f.p.replace(/_/g, " ")} ${f.o}`, s: "", ic: "graph", fn: () => { go("knowledge"); setTimeout(() => S.graph?.focus(f.s), 400); } })),
+          ...r.conversations.slice(0, 6).map(c => ({ group: "Conversations", t: c.snippet, s: c.title, ic: "chat", fn: () => { go("chat"); Chat.open(c.session); } })),
+        ];
+        if ($("#palette-q").value === q) { this.items = items.concat(more); this.draw(); }
+      } catch {}
+    }, 180);
+  },
+  draw() {
+    let g = "";
+    $("#palette-list").innerHTML = this.items.map((it, i) => { const head = it.group !== g ? `<div class="pal-group">${(g = it.group)}</div>` : ""; return head + `<div class="pal-item ${i === this.sel ? "sel" : ""}" data-i="${i}">${icon(it.ic)}<span class="t">${esc(it.t)}</span><span class="s">${esc(it.s)}</span></div>`; }).join("") || `<div class="empty">No results</div>`;
+    $$(".pal-item").forEach(el => { el.onclick = () => this.run(+el.dataset.i); el.onmousemove = () => { if (this.sel !== +el.dataset.i) { this.sel = +el.dataset.i; this.draw(); } }; });
+    $(".pal-item.sel")?.scrollIntoView({ block: "nearest" });
+  },
+  run(i) { const it = this.items[i]; this.close(); it?.fn(); },
+};
+$("#palette-btn").onclick = () => Palette.open();
+$("#palette-q").oninput = e => Palette.update(e.target.value);
+$("#palette-q").onkeydown = e => {
+  if (e.key === "ArrowDown") { e.preventDefault(); Palette.sel = Math.min(Palette.items.length - 1, Palette.sel + 1); Palette.draw(); }
+  if (e.key === "ArrowUp") { e.preventDefault(); Palette.sel = Math.max(0, Palette.sel - 1); Palette.draw(); }
+  if (e.key === "Enter") { e.preventDefault(); Palette.run(Palette.sel); }
+};
+$("#palette").onclick = e => { if (e.target.id === "palette") Palette.close(); };
+
+// ------------------------------------------------------------------ keyboard
+document.addEventListener("keydown", e => {
+  const mod = e.ctrlKey || e.metaKey;
+  if (e.key === "Escape") { if (!$("#palette").hidden) Palette.close(); return; }
+  if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); $("#palette").hidden ? Palette.open() : Palette.close(); }
+  else if (mod && e.shiftKey && e.key.toLowerCase() === "x") { e.preventDefault(); $("#stop").click(); }
+  else if (mod && e.shiftKey && e.key.toLowerCase() === "v") { e.preventDefault(); go("chat"); Chat.toggleMic?.(); }
+  else if (mod && e.key.toLowerCase() === "n") { e.preventDefault(); go("chat"); Chat.newChat(); }
+  else if (mod && e.key === ".") { e.preventDefault(); S.showMind = !S.showMind; store.set("showMind", S.showMind); Chat.root && Chat.applyLayout(); }
+  else if (mod && e.key === ",") { e.preventDefault(); go("settings"); }
+  else if (mod && /^[1-8]$/.test(e.key)) { e.preventDefault(); go(Object.keys(VIEWS)[+e.key - 1]); }
+  else if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); go("chat"); Chat.t.focus(); }
+});
+window.addEventListener("hashchange", () => { const v = location.hash.slice(1); if (v && v !== S.view) go(v); });
+
+// ------------------------------------------------------------------ boot
+go(VIEWS[location.hash.slice(1)] ? location.hash.slice(1) : "chat");
+refreshStatus(); setInterval(refreshStatus, 10000);
+setInterval(pollPending, 700);
+pollNotifications(); setInterval(pollNotifications, 30000);

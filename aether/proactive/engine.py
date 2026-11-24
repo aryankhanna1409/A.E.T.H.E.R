@@ -100,7 +100,8 @@ class ProactiveEngine:
         return k >= 3
 
     def brief(self, now: datetime) -> str:
-        lines = [f"Good morning. It's {now:%A %d %B}."]
+        part = "morning" if now.hour < 12 else "afternoon" if now.hour < 17 else "evening"
+        lines = [f"Good {part}. It's {now:%A %d %B}."]
         due = self.a.reminders.due(now.date())
         if due:
             lines.append("Due today or overdue: " + "; ".join(r.text for r in due[:6]))

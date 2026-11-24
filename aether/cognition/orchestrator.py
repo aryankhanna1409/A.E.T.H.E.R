@@ -80,6 +80,7 @@ class Reply:
     text: str
     state: CognitiveState
     notices: list[str] = field(default_factory=list)
+    turn_id: int | None = None
 
 
 class Aether:
@@ -156,10 +157,15 @@ class Aether:
         self.topics = TopicTracker(cfg.context.topic_switch_threshold)
         self.wm = WorkingMemory(cfg.context.working_memory_turns)
         self.session = uuid.uuid4().hex[:8]
+        from ..memory.conversations import Conversations
+        self.conversations = Conversations(self.db, self.lock, self.store.cipher)
 
     # ------------------------------------------------------------------ main entry
-    def handle(self, text: str) -> Reply:
-        """One turn, measured. Metrics never change the answer; they feed the dashboard and proposals."""
+    def handle(self, text: str, on_event: Callable[[str, dict], None] | None = None) -> Reply:
+        """One turn, measured. Metrics never change the answer; they feed the dashboard and proposals.
+        `on_event(kind, data)` receives live progress: stage, token, replace (see interface/server.py)."""
+        self._emit = on_event or (lambda kind, data: None)
+        self._streaming = on_event is not None
         fb = self.meta.implicit_feedback(text)
         start = time.perf_counter()
         try:
@@ -168,7 +174,9 @@ class Aether:
             self.meta.record_turn(CognitiveState(), (time.perf_counter() - start) * 1000, "error", "", [], str(e))
             raise
         reply.state.latency_ms = round((time.perf_counter() - start) * 1000, 1)
-        self.meta.record_turn(reply.state, reply.state.latency_ms, reply.state.current_goal[:80], reply.text, reply.notices)
+        reply.turn_id = self.meta.record_turn(reply.state, reply.state.latency_ms, reply.state.intent,
+                                              reply.text, reply.notices)
+        self.conversations.touch(self.session, text)
         if fb < 0:
             reply.notices.append("Noted that the last answer missed. It counts toward self-improvement proposals.")
         if self.meta.last_turn and self.meta.last_turn % 25 == 0:
@@ -192,7 +200,9 @@ class Aether:
             self.policy.emergency_stop = False
             return Reply("Actions re-enabled.", state)
 
+        emit = getattr(self, "_emit", lambda kind, data: None)
         # PERCEIVE
+        emit("stage", {"name": "perceive", "label": "Reading how you feel and what topic this is"})
         signal = companion.assess(text)
         state.wellness = signal.level
         topic, event = self.topics.observe(text)
@@ -203,16 +213,21 @@ class Aether:
         if learned:
             notices.append("Preference updated: " + "; ".join(learned))
 
+        emit("stage", {"name": "perceive", "done": True, "wellness": signal.level, "topic": state.active_topic})
         # INTERPRET (neural) + VALIDATE (symbolic)
+        emit("stage", {"name": "interpret", "label": "Understanding the request"})
         ir = perceive(self.llm, text, self.wm.history(topic.id), self.tools.names())
         report = validate_ir(ir, set(self.tools.names()))
         state.current_goal = ir.objective
+        state.intent = re.sub(r"[^a-z_]", "", ir.intent.lower())[:32] or "other"
         state.active_constraints = ir.constraints
         state.confidence = ir.confidence
         state.uncertain_hypotheses += report.issues
         if report.resolved_dates:
             state.known_facts += [f"'{k}' = {v}" for k, v in report.resolved_dates.items()]
 
+        emit("stage", {"name": "interpret", "done": True, "intent": ir.intent, "goal": ir.objective,
+                       "confidence": ir.confidence, "issues": report.issues})
         # LEARN stated facts now so this turn can already reason over them.
         for f in ir.facts_stated:
             conflicts = self.kg.assert_fact(f.subject, f.predicate, f.object, source="user_stated")
@@ -223,6 +238,7 @@ class Aether:
                 self.store.add(f"{f.subject} {f.predicate.replace('_', ' ')} {f.object}", "semantic", "user_stated", 0.95)
 
         # RETRIEVE
+        emit("stage", {"name": "retrieve", "label": "Deciding whether to look anything up"})
         plan = self.router.plan(ir, text)
         state.route = plan.routes
         for item in plan.documents + plan.memories:
@@ -235,12 +251,17 @@ class Aether:
             tool_results.append(r)
             state.tool_log.append(f"web_search -> {r.decision}, ok={r.ok}")
 
+        emit("stage", {"name": "retrieve", "done": True, "routes": plan.routes, "reasons": plan.reasons,
+                       "memories": len(plan.memories), "documents": len(plan.documents)})
         # REASON (symbolic)
+        emit("stage", {"name": "reason", "label": "Checking facts and rules"})
         derived, violations = self.rules.run()
         state.known_facts += [str(t) for t in plan.kg_facts[:25]]
         state.known_facts += [" ".join(d.triple) + " (derived)" for d in derived[:10]]
         state.contradictions += [f"Constraint broken: {v.constraint} with {v.binding}" for v in violations]
 
+        emit("stage", {"name": "reason", "done": True, "facts": len(state.known_facts),
+                       "contradictions": state.contradictions})
         # PLAN / EXECUTE tools
         if "tools" in plan.routes or "optimize" in plan.routes or ir.tools_required:
             tool_results += self._execute(ir, text, state)
@@ -251,8 +272,20 @@ class Aether:
         if self.llm is None:
             raise LLMUnavailable("No local model loaded. Set [llm].model_path in aether.toml (see README).")
         user_block = (context + "\n\n" if context else "") + f"<user_message>\n{text}\n</user_message>"
-        draft = self.llm.chat([Message("system", system), *history, Message("user", user_block)],
-                              max_tokens=self.cfg.llm.max_reply_tokens, temperature=self.cfg.llm.temperature)
+        emit("stage", {"name": "generate", "label": "Writing"})
+        msgs = [Message("system", system), *history, Message("user", user_block)]
+        if on_stream := (emit if getattr(self, "_streaming", False) and signal.level != "crisis" else None):
+            parts = []
+            for tok in self.llm.stream(msgs, max_tokens=self.cfg.llm.max_reply_tokens,
+                                       temperature=self.cfg.llm.temperature):
+                parts.append(tok)
+                on_stream("token", {"text": tok})
+            draft = "".join(parts)
+        else:
+            draft = self.llm.chat(msgs, max_tokens=self.cfg.llm.max_reply_tokens, temperature=self.cfg.llm.temperature)
+        emit("stage", {"name": "generate", "done": True})
+        streamed = draft
+        emit("stage", {"name": "verify", "label": "Checking the answer against what I know"})
 
         # VERIFY
         check = check_answer(self.llm, self.kg, draft) if self.kg.all() and signal.level != "crisis" else None
@@ -273,6 +306,9 @@ class Aether:
         answer = companion.ensure_resources(draft, signal)
         if signal.level != "crisis":
             answer = self.prefs.apply_filters(answer)
+        emit("stage", {"name": "verify", "done": True, "revised": state.revised})
+        if answer != streamed:
+            emit("replace", {"text": answer})  # verifier, citation check or your preferences changed it
 
         # LEARN
         self.wm.add(topic.id, "user", text)
@@ -354,9 +390,12 @@ class Aether:
             if sig in seen:
                 break  # never repeat an identical call
             seen.add(sig)
+            getattr(self, "_emit", lambda k, d: None)("tool", {"tool": call.tool, "args": call.args, "running": True})
             r = self.tools.call(call.tool, call.args)
             results.append(r)
             state.tool_log.append(f"{call.tool}({call.args}) -> {r.decision}, ok={r.ok}")
+            getattr(self, "_emit", lambda k, d: None)("tool", {"tool": call.tool, "ok": r.ok, "decision": r.decision,
+                                                               "preview": r.output[:240]})
             if r.decision in {"deny", "declined"}:
                 break  # never retry a refused action
         return results
@@ -411,6 +450,24 @@ class Aether:
         return self._watcher
 
     # ------------------------------------------------------------------ indexing
+    # ------------------------------------------------------------------ conversations
+    def new_conversation(self) -> str:
+        self.session = uuid.uuid4().hex[:8]
+        self.topics = TopicTracker(self.cfg.context.topic_switch_threshold)
+        self.wm = WorkingMemory(self.cfg.context.working_memory_turns)
+        return self.session
+
+    def open_conversation(self, session: str) -> list[dict]:
+        """Switch to an old conversation and replay its recent turns into working memory."""
+        turns = self.conversations.history(session)
+        self.new_conversation()
+        self.session = session
+        for t in turns[-self.cfg.context.working_memory_turns:]:
+            if t["role"] == "user":
+                topic, _ = self.topics.observe(t["text"])
+            self.wm.add(self.topics.current.id if self.topics.current else 0, t["role"], t["text"])
+        return turns
+
     def tune_retrieval(self) -> dict:
         """PSO over retrieval settings on the eval set. Returns a proposal; nothing changes yet."""
         return tuning.tune_retrieval(self.store, self.cfg.memory, self.evals.all())

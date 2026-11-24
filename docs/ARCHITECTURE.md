@@ -44,11 +44,11 @@ aether/
   speech/          faster-whisper STT, Piper TTS, VAD, wake word, voice loop with barge-in
   perception/      local vision (Qwen2.5-VL via llama.cpp, loaded on demand)
   evals/           end-to-end scenarios for the real model (aether-eval)
-  interface/       CLI, FastAPI server, web UI
+  interface/       CLI, FastAPI server (SSE streaming), web app (web/static: app.js, md.js, graph.js, app.css; no build step, no CDN)
 desktop/           Tauri 2 shell
 installer/         Inno Setup script
 scripts/           Windows setup, model download, GPU tuning, benchmark, installer build
-tests/             103 tests, no model weights needed
+tests/             111 tests, no model weights needed
 ```
 
 ## Dependencies
@@ -87,10 +87,11 @@ tests/             103 tests, no model weights needed
 | 9 | Metaheuristics | Done | NSGA-II, tabu search, differential evolution, optimization workspace (Lab tab), PSO self-tuning of retrieval |
 | 10 | Metacognition | Done | Turn metrics, implicit and explicit feedback, post-task self-review with lessons, approval-gated proposals (Self tab) |
 | 11 | Hardening | Done | Encryption at rest (DPAPI), injection tripwire + taint mode + test suite, proactive engine, real-model evals, installer, performance budget |
+| 12 | Web app and polish | Done | Streaming replies with live pipeline events, saved conversations, knowledge map, command palette, browser voice and images, prompt KV cache, small-talk fast path |
 
 ## Known limits
 
-* Everything was built and unit-tested here with a scripted model double (103 tests). It has **not yet run against real GGUF weights, a microphone, a GPU or Windows APIs**; `aether-eval` and `scripts/bench.py` are the first real check on your PC.
+* Everything was built and unit-tested here with a scripted model double (111 tests). It has **not yet run against real GGUF weights, a microphone, a GPU or Windows APIs**; `aether-eval` and `scripts/bench.py` are the first real check on your PC.
 * Small local models follow instructions less reliably than large cloud models. The symbolic layer and code-side filters catch a lot of that, but answer quality still depends on the GGUF you choose.
 * The Tauri shell and the Inno Setup installer have not been compiled here.
 * The injection scanner is a tripwire; the policy engine and taint mode are the real guarantee.
