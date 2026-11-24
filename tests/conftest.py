@@ -11,7 +11,8 @@ from aether.core.config import Config
 class FakeLLM:
     name = "fake"
 
-    def __init__(self, reply="Here is my answer.", ir=None, claims=None, steps=None):
+    def __init__(self, reply="Here is my answer.", ir=None, claims=None, steps=None, structured=None):
+        self.structured = structured or {}
         self.reply = reply
         self.ir = ir or {}
         self.claims = claims or []
@@ -29,6 +30,10 @@ class FakeLLM:
                 return json.dumps({"claims": self.claims})
             if title == "NextStep":
                 return json.dumps(self.steps.pop(0) if self.steps else {"done": True})
+            if title in self.structured:
+                v = self.structured[title]
+                return json.dumps(v(messages) if callable(v) else v)
+            return "{}"  # other schemas: all defaults
         return self.reply(messages) if callable(self.reply) else self.reply
 
     def stream(self, messages, **kw):

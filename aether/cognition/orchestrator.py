@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field
 from ..core.config import Config
 from ..core.logging import AuditLog, log
 from ..llm.base import LLMProvider, LLMUnavailable, Message, structured
+from ..memory import extraction, lifecycle
+from ..memory.prospective import Reminders
 from ..memory.store import MemoryStore
 from ..neurosymbolic.kg import KnowledgeGraph
 from ..neurosymbolic.policy import PolicyEngine
@@ -86,7 +88,17 @@ class Aether:
         self.tools.register(Tool("remember", "save a fact or note the user asked to keep",
                                  {"text": "what to remember"}, "memory",
                                  lambda text: f"Saved memory #{self.store.add(text, 'semantic', 'user_stated', 0.95)}."))
+        self.reminders = Reminders(self.db, self.lock)
+        self.tools.register(Tool("remind", "set a reminder for the user",
+                                 {"text": "what", "when": "e.g. tomorrow, friday, 2026-12-01"}, "memory",
+                                 lambda text, when="tomorrow": "Reminder set for {0.due}: {0.text}".format(
+                                     self.reminders.add(text, when))))
         self.router = QueryRouter(cfg.memory, self.store, self.kg)
+        self.turns_since_summary: dict[int, int] = {}
+        try:
+            lifecycle.decay(self.store, cfg.memory.episodic_keep_days)
+        except Exception as e:  # never block startup on maintenance
+            log.warning("memory decay skipped: %s", e)
         self.topics = TopicTracker(cfg.context.topic_switch_threshold)
         self.wm = WorkingMemory(cfg.context.working_memory_turns)
         self.session = uuid.uuid4().hex[:8]
@@ -190,9 +202,41 @@ class Aether:
             if tool_results:
                 summary += " -> used " + ", ".join(r.tool for r in tool_results)
             self.store.add(summary, "episodic", "observed", 0.7)
+        notices += self._after_turn(topic, text, answer, state)
         if state.contradictions:
             notices += state.contradictions
         return Reply(answer, state, notices)
+
+    def _after_turn(self, topic, text: str, answer: str, state: CognitiveState) -> list[str]:
+        """Selective long-term learning and topic summaries (Phase 2)."""
+        notes: list[str] = []
+        if self.llm is None or state.wellness == "crisis":
+            return notes
+        if extraction.should_extract(text):
+            try:
+                ex = extraction.extract(self.llm, text, answer)
+            except Exception as e:
+                log.warning("memory extraction failed: %s", e)
+                ex = None
+            if ex and ex.importance >= 0.5 and ex.kind != "small_talk":
+                for f in ex.facts:
+                    if not self.kg.assert_fact(f.subject, f.predicate, f.object, source="user_stated", confidence=0.8):
+                        self.store.add(f"{f.subject} {f.predicate.replace('_', ' ')} {f.object}", "semantic",
+                                       "user_stated", 0.8)
+                for r in ex.reminders:
+                    item = self.reminders.add(r.text, r.when)
+                    notes.append(f"Reminder noted for {item.due}: {item.text}")
+                for rt in ex.routines:
+                    self.store.add(f"Routine '{rt.name}': " + " -> ".join(rt.steps), "procedural", "user_stated", 0.8)
+        n = self.turns_since_summary.get(topic.id, 0) + 1
+        self.turns_since_summary[topic.id] = n
+        if n >= self.cfg.context.working_memory_turns // 2:
+            self.turns_since_summary[topic.id] = 0
+            summary = lifecycle.summarize_turns(self.llm, topic.label, self.wm.history(topic.id))
+            if summary:
+                self.store.add(f"[{datetime.now():%Y-%m-%d}] Conversation about {topic.label}: {summary}",
+                               "episodic", "observed", 0.75, {"topic": topic.label})
+        return notes
 
     # ------------------------------------------------------------------ helpers
     def _execute(self, ir: IntentIR, text: str, state: CognitiveState) -> list[ToolResult]:

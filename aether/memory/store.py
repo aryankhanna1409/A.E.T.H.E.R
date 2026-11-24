@@ -15,8 +15,9 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..llm.embeddings import Embedder, cosine
+from ..llm.embeddings import Embedder, cosine  # noqa: F401
 from ..retrieval.lexical import BM25
+from .vector_index import VectorIndex
 
 LAYERS = {"episodic", "semantic", "procedural", "preference", "prospective", "observation", "document"}
 SOURCES = {"user_stated", "user_approved", "observed", "inferred", "document", "web", "system"}
@@ -40,6 +41,7 @@ class MemoryStore:
         self.db.row_factory = sqlite3.Row
         self.lock = threading.Lock()
         self.embedder = embedder
+        self.index = VectorIndex(self.db)
         with self.lock:
             self.db.executescript("""
             CREATE TABLE IF NOT EXISTS memories (
@@ -77,6 +79,7 @@ class MemoryStore:
                 (layer, text, source, confidence, now, now, json.dumps(meta or {}),
                  json.dumps(emb) if emb else None))
             self.db.commit()
+            self.index.invalidate()
             return cur.lastrowid
 
     def _find_duplicate(self, text: str, layer: str, emb, threshold: float) -> int | None:
@@ -109,6 +112,7 @@ class MemoryStore:
                             "confidence=1.0 WHERE id=?",
                             (new_text, json.dumps(emb) if emb else None, time.time(), memory_id))
             self.db.commit()
+            self.index.invalidate()
 
     def forget(self, memory_id: int, hard: bool = True) -> None:
         with self.lock:
@@ -117,6 +121,7 @@ class MemoryStore:
             else:
                 self.db.execute("UPDATE memories SET deleted=1 WHERE id=?", (memory_id,))
             self.db.commit()
+            self.index.invalidate()
 
     def forget_matching(self, query: str) -> int:
         hits = self.search(query, k=20, min_score=0.5)
@@ -156,12 +161,13 @@ class MemoryStore:
         bm = BM25([r["text"] for r in rows]).scores(query)
         top_bm = max(bm) or 1.0
         qv = self.embedder.embed([query])[0] if self.embedder else None
+        vec_scores = self.index.scores(qv) if qv is not None else {}
         now = time.time()
         out = []
         for r, b in zip(rows, bm):
             lex = b / top_bm
-            if qv is not None and r["embedding"]:
-                vec = max(cosine(qv, json.loads(r["embedding"])), 0.0)
+            if qv is not None and r["id"] in vec_scores:
+                vec = max(vec_scores[r["id"]], 0.0)
                 score = alpha * vec + (1 - alpha) * lex
             else:
                 score = lex * (0.6 if b < 1.0 else 1.0)  # weak keyword-only hits get discounted
