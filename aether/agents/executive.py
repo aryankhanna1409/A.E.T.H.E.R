@@ -89,6 +89,7 @@ class Executive:
         return result
 
     def _execute(self, gid: int, goal: str) -> dict:
+        self.tools.clear_taint()
         self.graph.set_goal(gid, "running")
         start, replanned = time.time(), False
         while True:
@@ -172,6 +173,10 @@ class GoalRunner:
         self.queue: list[str] = []
         self.lock = threading.Lock()
         self.thread: threading.Thread | None = None
+
+    @property
+    def busy(self) -> bool:
+        return bool(self.queue) or bool(self.thread and self.thread.is_alive())
 
     def submit(self, goal: str) -> str:
         with self.lock:

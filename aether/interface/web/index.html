@@ -32,6 +32,7 @@
              padding: 10px 14px; border-radius: 10px; width: fit-content; }
   .msg.ai::before { content: "AETHER"; display: block; font-size: 11px; letter-spacing: .2em; color: var(--accent); }
   .notice { color: var(--muted); font-size: 12px; margin: -10px 0 16px; }
+  .notice.proactive { color: var(--warn); margin: 0 0 16px; white-space: pre-wrap; }
   form { display: flex; gap: 10px; padding: 16px max(24px, 8%); border-top: 1px solid var(--line); }
   textarea { flex: 1; resize: none; height: 48px; background: var(--panel); color: var(--text);
              border: 1px solid var(--line); border-radius: 8px; padding: 12px; font: inherit; }
@@ -225,6 +226,15 @@ async function answer(allow) {
   await api(`/api/pending/${pendingId}?allow=${allow}`, {method: "POST"}); pendingId = null;
 }
 $("#allow").onclick = () => answer(true); $("#deny").onclick = () => answer(false);
+async function pollNotifications() {
+  try {
+    const r = await api("/api/notifications");
+    r.items.forEach(n => { add("notice proactive", `◆ ${n.title}: ${n.body}`);
+      if (document.hidden && window.Notification && Notification.permission === "granted") new Notification("AETHER: " + n.title, {body: n.body}); });
+  } catch {}
+}
+if (window.Notification && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+setInterval(pollNotifications, 30000); pollNotifications();
 setInterval(pollPending, 700); refreshStatus().catch(e => $("#status").textContent = e.message); render();
 </script>
 </body>

@@ -37,7 +37,10 @@ def build(config_path: str | None = None, confirm: Callable[[str], bool] = lambd
         w.watch(cfg.security.allowed_read_roots, cfg.memory.watch_interval_s)
     try:
         from .personalization.observations import analyse
-        analyse(aether.db, aether.observations)
+        analyse(aether.db, aether.observations, decrypt=aether.store.cipher.decrypt)
     except Exception as e:
         log.warning("observation analysis skipped: %s", e)
+    if cfg.proactive.enabled:
+        aether.proactive.tick()
+        aether.proactive.start()
     return aether, problem

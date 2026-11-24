@@ -13,6 +13,7 @@ dependencies = [
   "llama-cpp-python>=0.3",
   "fastapi>=0.110",
   "python-multipart>=0.0.9",
+  "cryptography>=42",
   "uvicorn>=0.29",
   "httpx>=0.27",
   "ddgs>=9.0",
@@ -31,6 +32,7 @@ all = ["aether[embeddings,documents,computer,voice,dev]"]
 aether = "aether.interface.cli:main"
 aether-server = "aether.interface.server:main"
 aether-voice = "aether.speech.voice_loop:main"
+aether-eval = "aether.evals.scenarios:main"
 
 [tool.setuptools.packages.find]
 include = ["aether*"]

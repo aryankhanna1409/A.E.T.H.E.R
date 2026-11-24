@@ -78,7 +78,7 @@ class Observations:
                 "pressure or manipulate):\n" + "\n".join(f"- {o.text}" for o in conf[:10]))
 
 
-def analyse(db: sqlite3.Connection, obs: Observations, min_events: int = 3) -> list[int]:
+def analyse(db: sqlite3.Connection, obs: Observations, min_events: int = 3, decrypt=lambda s: s) -> list[int]:
     """Deterministic pattern mining over turns and mood observations."""
     proposed: list[int] = []
     moods = db.execute("SELECT text, meta, created FROM memories WHERE layer='observation' AND deleted=0 "
@@ -94,7 +94,7 @@ def analyse(db: sqlite3.Connection, obs: Observations, min_events: int = 3) -> l
                 proposed.append(oid)
         topics = Counter()
         for text, _, _ in moods:
-            about = text.split("about:", 1)[-1].strip().lower()
+            about = decrypt(text).split("about:", 1)[-1].strip().lower()
             for word in ("exam", "deadline", "work", "project", "money", "sleep", "family", "college", "job"):
                 if word in about:
                     topics[word] += 1

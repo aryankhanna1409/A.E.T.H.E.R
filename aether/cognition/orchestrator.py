@@ -32,7 +32,9 @@ from ..neurosymbolic.kg import KnowledgeGraph
 from ..neurosymbolic.policy import PolicyEngine
 from ..neurosymbolic.rules import RuleEngine
 from ..neurosymbolic.verifier import check_answer, validate_ir
+from ..core.crypto import load_cipher
 from ..core.settings import SettingsStore
+from ..security import injection
 from ..optimization import tuning
 from ..optimization.advanced import pareto_schedule
 from ..optimization.engine import optimize_schedule
@@ -84,7 +86,10 @@ class Aether:
     def __init__(self, cfg: Config, llm: LLMProvider | None, embedder=None,
                  confirm: Callable[[str], bool] = lambda _: False, reranker=None):
         self.cfg, self.llm = cfg, llm
-        self.store = MemoryStore(cfg.db_path, embedder)
+        self.store = MemoryStore(cfg.db_path, embedder, load_cipher(cfg.home, cfg.security.encrypt_at_rest))
+        migrated = self.store.encrypt_existing()
+        if migrated:
+            log.info("encrypted %d existing rows at rest", migrated)
         self.db: sqlite3.Connection = self.store.db
         self.lock: threading.Lock = self.store.lock
         self.settings = SettingsStore(self.db, self.lock, cfg)
@@ -139,6 +144,8 @@ class Aether:
                                    progress=lambda m: self.progress_log.append(m),
                                    on_finish=lambda g: self.meta.review_goal(self.llm, g, self.store)) if llm else None
         self.goals = GoalRunner(self.executive) if self.executive else None
+        from ..proactive import ProactiveEngine
+        self.proactive = ProactiveEngine(self, cfg.proactive)
         self.tools.register(Tool("start_goal", "start a multi-step autonomous task in the background (asks first)",
                                  {"goal": "the objective, with any constraints"}, "autonomy",
                                  lambda goal: self.goals.submit(goal) if self.goals else "No model loaded."))
@@ -173,6 +180,8 @@ class Aether:
     def _handle(self, text: str) -> Reply:
         state = CognitiveState()
         notices: list[str] = []
+        if not (self.goals and self.goals.busy):
+            self.tools.clear_taint()  # a running background goal keeps its taint
 
         # Emergency stop is handled before anything else, deterministically.
         if STOP_WORDS.search(text):
@@ -216,6 +225,10 @@ class Aether:
         # RETRIEVE
         plan = self.router.plan(ir, text)
         state.route = plan.routes
+        for item in plan.documents + plan.memories:
+            hits = injection.scan(item.text)
+            if hits:
+                self.tools.mark_tainted(f"retrieved {item.layer} #{item.id} ({item.meta.get('path', item.source)})", hits)
         tool_results: list[ToolResult] = []
         if plan.web_query:
             r = self.tools.call("web_search", {"query": plan.web_query})
@@ -277,6 +290,9 @@ class Aether:
         notices += self._after_turn(topic, text, answer, state)
         if state.contradictions:
             notices += state.contradictions
+        if self.tools.taint:
+            notices.append(f"Security: {self.tools.taint}. I treated it as data, and any action now needs your OK.")
+            state.uncertain_hypotheses.append("prompt injection suspected in retrieved content")
         return Reply(answer, state, notices)
 
     def _after_turn(self, topic, text: str, answer: str, state: CognitiveState) -> list[str]:
@@ -368,11 +384,11 @@ class Aether:
         if state.known_facts:
             ctx.append("<known_facts>\n" + "\n".join(state.known_facts) + "\n</known_facts>")
         if plan.memories:
-            ctx.append("<memory>\n" + "\n".join(f"[memory {i}] ({m.source}, conf {m.confidence:.1f}) {m.text}"
+            ctx.append("<memory>\n" + "\n".join(f"[memory {i}] ({m.source}, conf {m.confidence:.1f}) {injection.neutralize(m.text)}"
                                                for i, m in enumerate(plan.memories, 1)) + "\n</memory>")
         if plan.documents:
             ctx.append("<documents>\n" + "\n\n".join(
-                f"[doc {i}] {d.meta.get('path', '?')}\n{d.text}" for i, d in enumerate(plan.documents, 1))
+                f"[doc {i}] {d.meta.get('path', '?')}\n{injection.neutralize(d.text)}" for i, d in enumerate(plan.documents, 1))
                 + "\n</documents>")
         for r in tool_results:
             ctx.append(r.as_context() if r.tool != "web_search" else

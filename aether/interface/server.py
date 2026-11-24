@@ -187,7 +187,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.post("/api/observations/analyse")
     def analyse_obs():
         from ..personalization.observations import analyse
-        return {"proposed": analyse(aether.db, aether.observations)}
+        return {"proposed": analyse(aether.db, aether.observations, decrypt=aether.store.cipher.decrypt)}
 
     @app.post("/api/observations/{oid}")
     def observation_status(oid: int, status: str):
@@ -347,6 +347,16 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.get("/api/reviews")
     def reviews():
         return aether.meta.reviews()
+
+    # ---------------------------------------------------------------- Phase 11: proactive notifications
+    @app.get("/api/notifications")
+    def notifications():
+        return {"items": [n.__dict__ for n in aether.proactive.deliver()], "held": aether.proactive.held()}
+
+    @app.post("/api/notifications/{nid}/dismiss")
+    def dismiss(nid: int):
+        aether.proactive.dismiss(nid)
+        return {"ok": True}
 
     from fastapi import File, Form, UploadFile
 

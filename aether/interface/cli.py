@@ -53,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\033[31mNo language model loaded:\033[0m {problem}\nCommands still work; chat needs a model.")
     last_state = None
     while True:
+        for n in aether.proactive.deliver():
+            print(f"\n\033[35m[{n.title}]\033[0m {n.body}")
         try:
             text = input("\n\033[36myou >\033[0m ").strip()
         except (EOFError, KeyboardInterrupt):

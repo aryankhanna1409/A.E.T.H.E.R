@@ -56,7 +56,18 @@ class ContextConfig(BaseModel):
     working_memory_turns: int = 12
 
 
+class ProactiveConfig(BaseModel):
+    enabled: bool = True
+    quiet_start: str = "23:00"  # nothing is shown between these times; it waits
+    quiet_end: str = "07:30"
+    max_per_hour: int = 3
+    morning_brief: str = "08:30"  # empty = off
+    wellness_checkins: bool = True
+    check_interval_s: int = 60
+
+
 class SecurityConfig(BaseModel):
+    encrypt_at_rest: bool = True  # memories + conversation logs; key wrapped with Windows DPAPI
     allowed_read_roots: list[str] = Field(default_factory=lambda: [str(Path.home() / "Documents" / "AETHER")])
     allowed_write_roots: list[str] = Field(default_factory=list)  # empty = read-only to start
     auto_approve: list[str] = Field(default_factory=lambda: ["fs.read", "fs.list", "fs.search", "web.search", "web.fetch"])
@@ -114,6 +125,7 @@ class Config(BaseModel):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
+    proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
     max_plan_steps: int = 8
 
     @property

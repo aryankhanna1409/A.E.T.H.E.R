@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from ..llm.base import LLMProvider, Message, structured
 from ..retrieval import citations
 from ..retrieval.lexical import BM25
+from ..security.injection import neutralize
 
 
 class SubQueries(BaseModel):
@@ -97,8 +98,8 @@ def run(llm: LLMProvider, tools, store, question: str, max_pages: int = 5) -> Re
     blocks, n = [], {"web": 0, "doc": 0}
     for s in rep.sources:
         n[s.kind] += 1
-        blocks.append(f"<source id=\"{s.kind} {n[s.kind]}\" title=\"{s.title}\">\n[UNTRUSTED DATA]\n{s.text[:2500]}\n</source>")
-    memory_block = "\n".join(f"- {m.text}" for m in known) or "(nothing relevant)"
+        blocks.append(f"<source id=\"{s.kind} {n[s.kind]}\" title=\"{s.title}\">\n[UNTRUSTED DATA]\n{neutralize(s.text[:2500])}\n</source>")
+    memory_block = "\n".join(f"- {neutralize(m.text)}" for m in known) or "(nothing relevant)"
     draft = llm.chat([
         Message("system", "Write a research brief. Sections: 1) What you already know (from [doc n] and memory), "
                           "2) What is new (from [web n]), 3) Conflicts or disagreements between sources, "

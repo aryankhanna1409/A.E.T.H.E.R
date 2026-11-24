@@ -36,7 +36,9 @@ class Memory:
 
 
 class MemoryStore:
-    def __init__(self, db_path: Path, embedder: Embedder | None = None):
+    def __init__(self, db_path: Path, embedder: Embedder | None = None, cipher=None):
+        from ..core.crypto import NullCipher
+        self.cipher = cipher or NullCipher()
         self.db = sqlite3.connect(db_path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.lock = threading.Lock()
@@ -76,7 +78,7 @@ class MemoryStore:
             cur = self.db.execute(
                 "INSERT INTO memories(layer,text,source,confidence,created,updated,meta,embedding) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                (layer, text, source, confidence, now, now, json.dumps(meta or {}),
+                (layer, self.cipher.encrypt(text), source, confidence, now, now, json.dumps(meta or {}),
                  json.dumps(emb) if emb else None))
             self.db.commit()
             self.index.invalidate()
@@ -87,7 +89,7 @@ class MemoryStore:
                                (layer,)).fetchall()
         norm = " ".join(text.lower().split())
         for r in rows:
-            if " ".join(r["text"].lower().split()) == norm:
+            if " ".join(self.cipher.decrypt(r["text"]).lower().split()) == norm:
                 return r["id"]
             if emb and r["embedding"] and cosine(emb, json.loads(r["embedding"])) >= threshold:
                 return r["id"]
@@ -118,7 +120,7 @@ class MemoryStore:
         with self.lock:
             self.db.execute("UPDATE memories SET text=?, embedding=?, updated=?, source='user_approved', "
                             "confidence=1.0 WHERE id=?",
-                            (new_text, json.dumps(emb) if emb else None, time.time(), memory_id))
+                            (self.cipher.encrypt(new_text), json.dumps(emb) if emb else None, time.time(), memory_id))
             self.db.commit()
             self.index.invalidate()
 
@@ -140,7 +142,7 @@ class MemoryStore:
     def log_turn(self, session: str, topic: int, role: str, text: str) -> None:
         with self.lock:
             self.db.execute("INSERT INTO turns(session,topic,role,text,created) VALUES (?,?,?,?,?)",
-                            (session, topic, role, text, time.time()))
+                            (session, topic, role, self.cipher.encrypt(text), time.time()))
             self.db.commit()
 
     # ------------------------------------------------------------------ reads
@@ -166,13 +168,14 @@ class MemoryStore:
         rows = self.db.execute(q, args).fetchall()
         if not rows:
             return []
-        bm = BM25([r["text"] for r in rows]).scores(query)
+        texts = [self.cipher.decrypt(r["text"]) for r in rows]
+        bm = BM25(texts).scores(query)
         top_bm = max(bm) or 1.0
         qv = self.embedder.embed([query])[0] if self.embedder else None
         vec_scores = self.index.scores(qv) if qv is not None else {}
         now = time.time()
         out = []
-        for r, b in zip(rows, bm):
+        for r, b, text in zip(rows, bm, texts):
             lex = b / top_bm
             if qv is not None and r["id"] in vec_scores:
                 vec = max(vec_scores[r["id"]], 0.0)
@@ -183,7 +186,7 @@ class MemoryStore:
             score *= 0.85 + 0.15 * 0.5 ** (age_days / half_life_days)
             score *= 0.7 + 0.3 * r["confidence"]
             if score > min_score:
-                m = self._row(r)
+                m = self._row(r, text)
                 m.score = score
                 out.append(m)
         out.sort(key=lambda m: m.score, reverse=True)
@@ -198,9 +201,26 @@ class MemoryStore:
     def recent_turns(self, session: str, limit: int = 12) -> list[tuple[str, str]]:
         rows = self.db.execute("SELECT role, text FROM turns WHERE session=? ORDER BY id DESC LIMIT ?",
                                (session, limit)).fetchall()
-        return [(r["role"], r["text"]) for r in reversed(rows)]
+        return [(r["role"], self.cipher.decrypt(r["text"])) for r in reversed(rows)]
 
-    @staticmethod
-    def _row(r: sqlite3.Row) -> Memory:
-        return Memory(r["id"], r["layer"], r["text"], r["source"], r["confidence"], r["created"],
-                      json.loads(r["meta"] or "{}"))
+    def user_turn_texts(self, limit: int = 200) -> list[str]:
+        rows = self.db.execute("SELECT text FROM turns WHERE role='user' ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [self.cipher.decrypt(r["text"]) for r in rows]
+
+    def encrypt_existing(self) -> int:
+        """Migrate plaintext rows written before encryption was switched on."""
+        if not self.cipher.enabled:
+            return 0
+        n = 0
+        with self.lock:
+            for table in ("memories", "turns"):
+                rows = self.db.execute(f"SELECT id, text FROM {table} WHERE text NOT LIKE 'enc1:%'").fetchall()
+                for r in rows:
+                    self.db.execute(f"UPDATE {table} SET text=? WHERE id=?", (self.cipher.encrypt(r["text"]), r["id"]))
+                n += len(rows)
+            self.db.commit()
+        return n
+
+    def _row(self, r: sqlite3.Row, text: str | None = None) -> Memory:
+        return Memory(r["id"], r["layer"], text if text is not None else self.cipher.decrypt(r["text"]), r["source"],
+                      r["confidence"], r["created"], json.loads(r["meta"] or "{}"))
