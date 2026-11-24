@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AETHER</title>
+<style>
+  :root {
+    --bg: #070b10; --panel: #0d141c; --line: #1b2833; --text: #d7e6ef; --muted: #7d93a3;
+    --accent: #3fd0e8; --accent-dim: #3fd0e81f; --warn: #f2b84b; --bad: #ff6b6b; --good: #5fd38d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+         height: 100vh; display: grid; grid-template-columns: 1fr 380px; grid-template-rows: 56px 1fr; }
+  header { grid-column: 1 / 3; display: flex; align-items: center; gap: 16px; padding: 0 20px;
+           border-bottom: 1px solid var(--line); }
+  .logo { font-weight: 600; letter-spacing: .32em; color: var(--accent); }
+  .orb { width: 14px; height: 14px; border-radius: 50%; background: var(--accent);
+         box-shadow: 0 0 12px var(--accent); animation: pulse 2.4s ease-in-out infinite; }
+  .orb.thinking { animation-duration: .6s; }
+  @keyframes pulse { 50% { opacity: .35; transform: scale(.8); } }
+  #status { color: var(--muted); font-size: 12px; flex: 1; }
+  button { background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+           padding: 6px 12px; cursor: pointer; font: inherit; }
+  button:hover { border-color: var(--accent); }
+  #stop { border-color: var(--bad); color: var(--bad); }
+  #stop.on { background: var(--bad); color: #000; }
+  main { display: flex; flex-direction: column; min-height: 0; }
+  #log { flex: 1; overflow-y: auto; padding: 24px max(24px, 8%); }
+  .msg { max-width: 760px; margin: 0 0 18px; white-space: pre-wrap; }
+  .msg.you { margin-left: auto; background: var(--accent-dim); border: 1px solid #3fd0e840;
+             padding: 10px 14px; border-radius: 10px; width: fit-content; }
+  .msg.ai::before { content: "AETHER"; display: block; font-size: 11px; letter-spacing: .2em; color: var(--accent); }
+  .notice { color: var(--muted); font-size: 12px; margin: -10px 0 16px; }
+  form { display: flex; gap: 10px; padding: 16px max(24px, 8%); border-top: 1px solid var(--line); }
+  textarea { flex: 1; resize: none; height: 48px; background: var(--panel); color: var(--text);
+             border: 1px solid var(--line); border-radius: 8px; padding: 12px; font: inherit; }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  aside { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+  nav { display: flex; border-bottom: 1px solid var(--line); }
+  nav button { flex: 1; border: 0; border-radius: 0; padding: 12px 4px; color: var(--muted); font-size: 12px; }
+  nav button.active { color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
+  #panel { flex: 1; overflow-y: auto; padding: 14px; font-size: 13px; }
+  .row { border-bottom: 1px solid var(--line); padding: 8px 0; display: flex; gap: 8px; align-items: flex-start; }
+  .row .grow { flex: 1; } .tag { font-size: 11px; color: var(--muted); }
+  .row button { padding: 2px 8px; font-size: 11px; }
+  h4 { margin: 14px 0 6px; font-size: 11px; letter-spacing: .15em; color: var(--accent); text-transform: uppercase; }
+  .ok { color: var(--good); } .no { color: var(--bad); }
+  #modal { position: fixed; inset: 0; background: #000a; display: none; place-items: center; }
+  #modal .box { background: var(--panel); border: 1px solid var(--warn); border-radius: 10px; padding: 20px;
+                max-width: 520px; white-space: pre-wrap; }
+  #modal .box b { color: var(--warn); }
+  @media (max-width: 860px) { body { grid-template-columns: 1fr; } aside { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="orb" id="orb"></div><div class="logo">AETHER</div>
+  <div id="status">connecting...</div>
+  <button id="stop" title="Block every computer action immediately">Emergency stop</button>
+</header>
+<main>
+  <div id="log"></div>
+  <form id="f"><textarea id="t" placeholder="Talk to AETHER... (Enter to send, Shift+Enter for a new line)"></textarea><button>Send</button></form>
+</main>
+<aside>
+  <nav>
+    <button data-tab="mind" class="active">Mind</button><button data-tab="prefs">Preferences</button>
+    <button data-tab="memory">Memory</button><button data-tab="facts">Facts</button><button data-tab="activity">Activity</button>
+  </nav>
+  <div id="panel"></div>
+</aside>
+<div id="modal"><div class="box"><b>Permission needed</b><p id="mtext"></p>
+  <button id="allow">Allow</button> <button id="deny">Deny</button></div></div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let tab = "mind", lastState = null, pendingId = null;
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {headers: {"Content-Type": "application/json"}, ...opts});
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+}
+function add(cls, text) {
+  const d = document.createElement("div"); d.className = cls; d.textContent = text;
+  $("#log").appendChild(d); $("#log").scrollTop = 1e9;
+}
+async function refreshStatus() {
+  const s = await api("/api/status");
+  $("#status").textContent = (s.model_loaded ? "model loaded" : "no model: " + s.problem) +
+    ` · ${s.embeddings} · ${s.memories} memories · ${s.facts} facts · network ${s.network ? "on" : "off"}`;
+  $("#stop").classList.toggle("on", s.emergency_stop);
+  $("#stop").textContent = s.emergency_stop ? "Stopped (click to resume)" : "Emergency stop";
+}
+$("#f").onsubmit = async e => {
+  e.preventDefault();
+  const text = $("#t").value.trim(); if (!text) return;
+  $("#t").value = ""; add("msg you", text); $("#orb").classList.add("thinking");
+  try {
+    const r = await api("/api/chat", {method: "POST", body: JSON.stringify({text})});
+    r.notices.forEach(n => add("notice", "· " + n)); add("msg ai", r.text);
+    lastState = r.state; render();
+  } catch (err) { add("notice", "error: " + err.message); }
+  $("#orb").classList.remove("thinking"); refreshStatus();
+};
+$("#t").onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#f").requestSubmit(); } };
+$("#stop").onclick = async () => {
+  const on = !$("#stop").classList.contains("on");
+  await api(`/api/stop?engaged=${on}`, {method: "POST"}); refreshStatus();
+};
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
+  b.classList.add("active"); tab = b.dataset.tab; render();
+});
+async function render() {
+  const p = $("#panel");
+  if (tab === "mind") {
+    const s = lastState;
+    if (!s) { p.innerHTML = '<p class="tag">The cognitive state of the last turn shows here: goal, route, facts, contradictions and tool calls.</p>'; return; }
+    const list = (t, xs) => `<h4>${t}</h4>` + (xs && xs.length ? xs.map(x => `<div class="row">${esc(x)}</div>`).join("") : '<div class="tag">none</div>');
+    p.innerHTML = `<h4>Goal</h4>${esc(s.current_goal)}<h4>Topic</h4>${esc(s.active_topic)}
+      <h4>Route</h4>${esc(s.route.join(" + "))}<h4>Wellbeing</h4>${esc(s.wellness)}<h4>Confidence</h4>${(s.confidence*100).toFixed(0)}%`
+      + list("Known facts", s.known_facts) + list("Contradictions", s.contradictions)
+      + list("Uncertain", s.uncertain_hypotheses) + list("Tool calls", s.tool_log);
+  } else if (tab === "prefs") {
+    const prefs = await api("/api/preferences");
+    p.innerHTML = `<div class="row"><input id="np" class="grow" placeholder="Add your own rule..." style="background:var(--bg);color:var(--text);border:1px solid var(--line);padding:6px"><button id="addp">Add</button></div>` +
+      (prefs.map(x => `<div class="row"><div class="grow"><span class="${x.active ? "ok" : "no"}">${x.active ? "on" : "off"}</span> ${esc(x.instruction)}<div class="tag">${esc(x.key)} · ${esc(x.source)} · conf ${x.confidence.toFixed(2)}</div></div>
+        <button data-k="${esc(x.key)}" data-a="${x.active ? "off" : "on"}">${x.active ? "Disable" : "Enable"}</button><button data-k="${esc(x.key)}" data-a="delete">Delete</button></div>`).join("") || '<p class="tag">Nothing learned yet. Tell AETHER what you like or hate about its replies.</p>');
+    $("#addp").onclick = async () => { await api("/api/preferences", {method: "POST", body: JSON.stringify({key: "", action: "add", value: $("#np").value})}); render(); };
+    p.querySelectorAll("button[data-k]").forEach(b => b.onclick = async () => {
+      await api("/api/preferences", {method: "POST", body: JSON.stringify({key: b.dataset.k, action: b.dataset.a})}); render(); });
+  } else if (tab === "memory") {
+    const ms = await api("/api/memories");
+    p.innerHTML = ms.map(m => `<div class="row"><div class="grow">${esc(m.text.slice(0, 220))}<div class="tag">#${m.id} · ${m.layer} · ${m.source} · conf ${m.confidence.toFixed(2)}</div></div><button data-m="${m.id}">Forget</button></div>`).join("") || '<p class="tag">No memories yet.</p>';
+    p.querySelectorAll("button[data-m]").forEach(b => b.onclick = async () => { await api("/api/memories/" + b.dataset.m, {method: "DELETE"}); render(); });
+  } else if (tab === "facts") {
+    const fs = await api("/api/facts");
+    p.innerHTML = fs.map(f => `<div class="row"><div class="grow">${esc(f.s)} <span class="tag">${esc(f.p)}</span> ${esc(f.o)}<div class="tag">${f.source} · ${f.confidence.toFixed(2)}</div></div><button data-f="${f.id}">Retract</button></div>`).join("") || '<p class="tag">The knowledge graph is empty.</p>';
+    p.querySelectorAll("button[data-f]").forEach(b => b.onclick = async () => { await api("/api/facts/" + b.dataset.f, {method: "DELETE"}); render(); });
+  } else {
+    const a = await api("/api/audit");
+    p.innerHTML = a.map(e => `<div class="row"><div class="grow"><span class="${e.allowed ? "ok" : "no"}">${e.allowed ? "allowed" : "blocked"}</span> ${esc(e.action)}<div class="tag">${esc(e.target)} · ${esc(e.reason)} · ${new Date(e.t*1000).toLocaleTimeString()}</div></div></div>`).join("") || '<p class="tag">Nothing accessed yet.</p>';
+  }
+}
+async function pollPending() {
+  try {
+    const items = await api("/api/pending");
+    if (items.length && pendingId !== items[0].id) {
+      pendingId = items[0].id; $("#mtext").textContent = items[0].prompt; $("#modal").style.display = "grid";
+    }
+  } catch {}
+}
+async function answer(allow) {
+  $("#modal").style.display = "none";
+  await api(`/api/pending/${pendingId}?allow=${allow}`, {method: "POST"}); pendingId = null;
+}
+$("#allow").onclick = () => answer(true); $("#deny").onclick = () => answer(false);
+setInterval(pollPending, 700); refreshStatus().catch(e => $("#status").textContent = e.message); render();
+</script>
+</body>
+</html>

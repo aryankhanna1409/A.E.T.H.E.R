@@ -1,0 +1,100 @@
+"""Configuration. Everything tunable lives in `aether.toml` so the optimizer
+can evolve it and you can inspect it. No API keys exist anywhere: every model
+runs in-process on your machine."""
+from __future__ import annotations
+
+import os
+import tomllib
+from pathlib import Path
+
+from pydantic import BaseModel, Field
+
+
+def default_home() -> Path:
+    base = os.environ.get("AETHER_HOME")
+    if base:
+        return Path(base)
+    if os.name == "nt":  # Windows 11: %LOCALAPPDATA%\AETHER
+        return Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "AETHER"
+    return Path.home() / ".aether"
+
+
+class LLMConfig(BaseModel):
+    backend: str = "llama_cpp"  # "llama_cpp" | "transformers"
+    model_path: str = ""  # path to a .gguf file (llama_cpp) or HF folder (transformers)
+    context_tokens: int = 8192
+    gpu_layers: int = -1  # -1 = offload everything that fits; 0 = CPU only
+    threads: int = 0  # 0 = auto
+    temperature: float = 0.6
+    max_reply_tokens: int = 1024
+    chat_format: str | None = None  # None = read template from the GGUF
+
+
+class EmbeddingConfig(BaseModel):
+    backend: str = "sentence_transformers"  # or "lexical" (no model; BM25 only)
+    model: str = "BAAI/bge-small-en-v1.5"  # downloaded once, then fully offline
+    device: str = "cpu"
+
+
+class MemoryConfig(BaseModel):
+    rag_min_score: float = 0.25
+    rag_top_k: int = 6
+    hybrid_alpha: float = 0.6  # weight of vector score vs BM25 in hybrid search
+    dedupe_threshold: float = 0.92
+    episodic_keep_days: int = 365
+
+
+class ContextConfig(BaseModel):
+    topic_switch_threshold: float = 0.12
+    working_memory_turns: int = 12
+
+
+class SecurityConfig(BaseModel):
+    allowed_read_roots: list[str] = Field(default_factory=lambda: [str(Path.home() / "Documents" / "AETHER")])
+    allowed_write_roots: list[str] = Field(default_factory=list)  # empty = read-only to start
+    auto_approve: list[str] = Field(default_factory=lambda: ["fs.read", "fs.list", "fs.search", "web.search", "web.fetch"])
+    network: bool = True  # web research on/off
+    denylist_globs: list[str] = Field(default_factory=lambda: [
+        "*.env", ".env.*", "*.pem", "*.key", "id_rsa*", "id_ed25519*", "*.kdbx", "*.ppk",
+        "Login Data", "Cookies", "*.sqlite-wal", "credentials*", "*secret*",
+    ])
+    denylist_dirs: list[str] = Field(default_factory=lambda: [
+        ".ssh", ".aws", ".gnupg", ".azure", "AppData\\Roaming\\Microsoft\\Credentials",
+        "AppData\\Local\\Google\\Chrome\\User Data", "AppData\\Local\\Microsoft\\Edge\\User Data",
+    ])
+
+
+class Config(BaseModel):
+    name: str = "AETHER"
+    user_name: str = "Aryan"
+    home: Path = Field(default_factory=default_home)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
+    embeddings: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    context: ContextConfig = Field(default_factory=ContextConfig)
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
+    max_plan_steps: int = 8
+
+    @property
+    def db_path(self) -> Path:
+        return self.home / "aether.db"
+
+    @property
+    def audit_path(self) -> Path:
+        return self.home / "audit.jsonl"
+
+
+def load_config(path: str | Path | None = None) -> Config:
+    candidates = [Path(path)] if path else [Path("aether.toml"), default_home() / "aether.toml"]
+    data: dict = {}
+    for p in candidates:
+        if p.exists():
+            data = tomllib.loads(p.read_text(encoding="utf-8"))
+            break
+    cfg = Config.model_validate(data)
+    cfg.home = Path(cfg.home).expanduser()
+    cfg.home.mkdir(parents=True, exist_ok=True)
+    sec = cfg.security
+    sec.allowed_read_roots = [str(Path(r).expanduser().resolve()) for r in sec.allowed_read_roots]
+    sec.allowed_write_roots = [str(Path(r).expanduser().resolve()) for r in sec.allowed_write_roots]
+    return cfg

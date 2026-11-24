@@ -1,0 +1,31 @@
+# Copy to aether.toml (next to where you run AETHER) or to %LOCALAPPDATA%\AETHER\aether.toml
+user_name = "Aryan"
+max_plan_steps = 8
+
+[llm]
+backend = "llama_cpp"            # in-process llama.cpp; no Ollama, no server, no API
+model_path = "C:/AETHER/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+context_tokens = 8192
+gpu_layers = -1                  # -1 = offload all layers to the GPU (CUDA build); 0 = CPU only
+temperature = 0.6
+max_reply_tokens = 1024
+
+[embeddings]
+backend = "sentence_transformers"  # or "lexical" for BM25 only (no embedding model)
+model = "BAAI/bge-small-en-v1.5"   # downloaded once into the Hugging Face cache, offline after
+device = "cpu"                     # "cuda" if you have an NVIDIA GPU
+
+[memory]
+rag_min_score = 0.25
+rag_top_k = 6
+hybrid_alpha = 0.6
+
+[context]
+topic_switch_threshold = 0.12
+
+[security]
+# AETHER starts read-only inside these folders. Add write roots deliberately.
+allowed_read_roots = ["C:/Users/Aryan/Documents/AETHER", "C:/Users/Aryan/Documents/Research"]
+allowed_write_roots = ["C:/Users/Aryan/Documents/AETHER/output"]
+auto_approve = ["fs.read", "fs.list", "fs.search", "web.search", "web.fetch"]
+network = true                   # false = fully offline (disables web research)
