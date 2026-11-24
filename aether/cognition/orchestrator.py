@@ -31,6 +31,7 @@ from ..neurosymbolic.doc_facts import extract_document_facts
 from ..neurosymbolic.kg import KnowledgeGraph
 from ..neurosymbolic.policy import PolicyEngine
 from ..neurosymbolic.rules import RuleEngine
+from ..neurosymbolic.whatif import what_if
 from ..neurosymbolic.verifier import check_answer, validate_ir
 from ..core.crypto import load_cipher
 from ..core.settings import SettingsStore
@@ -50,6 +51,7 @@ from ..tools.registry import Tool, ToolRegistry, ToolResult
 from ..tools.web import web_tools
 from ..wellness import companion
 from .context import TopicTracker, WorkingMemory
+from .trace import TraceRecorder, TraceStore, TracingLLM
 from .ir import CognitiveState, IntentIR, ToolCall
 from .perception import perceive
 from .router import QueryRouter
@@ -125,6 +127,10 @@ class Aether:
         self.tools.register(Tool("kg_query", "query known facts with logic, e.g. parent_of(?p, riya)",
                                  {"pattern": "predicate(subject, object) & ..."}, "kg",
                                  lambda pattern: "\n".join(str(b) for b in self.rules.ask(pattern)) or "No matches."))
+        self.tools.register(Tool("what_if", "counterfactual reasoning: what would follow if a fact were true (or false)? "
+                                 "Never changes real memory.",
+                                 {"assumption": "'subject predicate object; !subject predicate object' (! = assume false)"},
+                                 "kg", lambda assumption: self.what_if(assumption).render()))
         self.vision = Vision(cfg.vision)
         self.tools.register(Tool("look_at_image", "understand an image or screenshot file (local vision model)",
                                  {"path": "image file in an authorized folder", "question": "what to find out"},
@@ -159,24 +165,45 @@ class Aether:
         self.session = uuid.uuid4().hex[:8]
         from ..memory.conversations import Conversations
         self.conversations = Conversations(self.db, self.lock, self.store.cipher)
+        self.traces = TraceStore(self.db, self.lock, self.store.cipher)
 
     # ------------------------------------------------------------------ main entry
+    def what_if(self, spec: str):
+        """Counterfactual over a snapshot of the knowledge graph; real memory is untouched."""
+        return what_if(self.kg, [r.text for r in self.rules.rules], spec)
+
     def handle(self, text: str, on_event: Callable[[str, dict], None] | None = None) -> Reply:
         """One turn, measured. Metrics never change the answer; they feed the dashboard and proposals.
         `on_event(kind, data)` receives live progress: stage, token, replace (see interface/server.py)."""
-        self._emit = on_event or (lambda kind, data: None)
+        rec = TraceRecorder(text)
+        forward = on_event or (lambda kind, data: None)
+
+        def emit(kind, data):
+            rec.record(kind, data)
+            forward(kind, data)
+        self._emit = emit
         self._streaming = on_event is not None
         fb = self.meta.implicit_feedback(text)
         start = time.perf_counter()
+        raw_llm = self.llm
+        if raw_llm is not None:
+            self.llm = TracingLLM(raw_llm, rec)
         try:
             reply = self._handle(text)
         except Exception as e:
             self.meta.record_turn(CognitiveState(), (time.perf_counter() - start) * 1000, "error", "", [], str(e))
             raise
+        finally:
+            if raw_llm is not None and isinstance(self.llm, TracingLLM):
+                self.llm = raw_llm
         reply.state.latency_ms = round((time.perf_counter() - start) * 1000, 1)
         reply.turn_id = self.meta.record_turn(reply.state, reply.state.latency_ms, reply.state.intent,
                                               reply.text, reply.notices)
         self.conversations.touch(self.session, text)
+        try:
+            self.traces.save(reply.turn_id, self.session, rec.finish(reply.text, reply.state.model_dump(), reply.notices))
+        except Exception as e:  # tracing must never break a turn
+            log.warning("trace not saved: %s", e)
         if fb < 0:
             reply.notices.append("Noted that the last answer missed. It counts toward self-improvement proposals.")
         if self.meta.last_turn and self.meta.last_turn % 25 == 0:
@@ -252,7 +279,10 @@ class Aether:
             state.tool_log.append(f"web_search -> {r.decision}, ok={r.ok}")
 
         emit("stage", {"name": "retrieve", "done": True, "routes": plan.routes, "reasons": plan.reasons,
-                       "memories": len(plan.memories), "documents": len(plan.documents)})
+                       "memories": len(plan.memories), "documents": len(plan.documents),
+                       "items": [{"id": m.id, "layer": m.layer, "score": round(m.score, 3), "path": m.meta.get("path", ""),
+                                  "text": m.text[:220]} for m in plan.memories + plan.documents][:12],
+                       "web_query": plan.web_query or ""})
         # REASON (symbolic)
         emit("stage", {"name": "reason", "label": "Checking facts and rules"})
         derived, violations = self.rules.run()
@@ -261,7 +291,10 @@ class Aether:
         state.contradictions += [f"Constraint broken: {v.constraint} with {v.binding}" for v in violations]
 
         emit("stage", {"name": "reason", "done": True, "facts": len(state.known_facts),
-                       "contradictions": state.contradictions})
+                       "contradictions": state.contradictions,
+                       "derived": [{"fact": " ".join(d.triple), "rule": d.rule, "because": [" ".join(x) for x in d.support]}
+                                   for d in derived[:15]],
+                       "violations": [v.constraint for v in violations][:10], "known": state.known_facts[:25]})
         # PLAN / EXECUTE tools
         if "tools" in plan.routes or "optimize" in plan.routes or ir.tools_required:
             tool_results += self._execute(ir, text, state)
@@ -306,7 +339,10 @@ class Aether:
         answer = companion.ensure_resources(draft, signal)
         if signal.level != "crisis":
             answer = self.prefs.apply_filters(answer)
-        emit("stage", {"name": "verify", "done": True, "revised": state.revised})
+        emit("stage", {"name": "verify", "done": True, "revised": state.revised,
+                       "supported": check.supported if check else [], "conflicts": check.contradictions if check else [],
+                       "removed_citations": fake, "prompt_chars": {"system": len(system), "context": len(context),
+                                                                   "history": sum(len(m.content) for m in history)}})
         if answer != streamed:
             emit("replace", {"text": answer})  # verifier, citation check or your preferences changed it
 

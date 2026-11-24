@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" font-family="Segoe UI, system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4c6070"/></marker>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#071019"/><stop offset="1" stop-color="#05080d"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="6"/></filter>
+  </defs>
+  <rect width="1200" height="560" rx="18" fill="url(#bg)"/>
+  <text x="40" y="50" fill="#dbe8f1" font-size="22" font-weight="600" letter-spacing="1">AETHER · one turn, end to end</text>
+  <text x="40" y="74" fill="#7f95a6" font-size="13">Neural steps (violet) propose. Symbolic steps (cyan) check, decide and prove. Everything runs on your PC.</text>
+
+  <!-- pipeline -->
+  <g font-size="13" text-anchor="middle">
+    <g transform="translate(40,120)">
+      <rect width="112" height="74" rx="12" fill="#0d151f" stroke="#233446"/><text x="56" y="32" fill="#dbe8f1" font-weight="600">Perceive</text><text x="56" y="52" fill="#7f95a6" font-size="11">mood · topic</text>
+    </g>
+    <g transform="translate(176,120)">
+      <rect width="112" height="74" rx="12" fill="#13102a" stroke="#8b7cf6"/><text x="56" y="32" fill="#dbe8f1" font-weight="600">Interpret</text><text x="56" y="52" fill="#b2a8ff" font-size="11">LLM → typed IR</text>
+    </g>
+    <g transform="translate(312,120)">
+      <rect width="112" height="74" rx="12" fill="#08202a" stroke="#3fd0e8"/><text x="56" y="32" fill="#dbe8f1" font-weight="600">Validate</text><text x="56" y="52" fill="#8fe6f3" font-size="11">schema · dates</text>
+    </g>
+    <g transform="translate(448,120)">
+      <rect width="112" height="74" rx="12" fill="#08202a" stroke="#3fd0e8"/><text x="56" y="32" fill="#dbe8f1" font-weight="600">Route</text><text x="56" y="52" fill="#8fe6f3" font-size="11">RAG or not?</text>
+    </g>
+    <g transform="translate(584,120)">
+      <rect width="112" height="74" rx="12" fill="#08202a" stroke="#3fd0e8"/><text x="56" y="32" fill="#dbe8f1" font-weight="600">Reason</text><text x="56" y="52" fill="#8fe6f3" font-size="11">KG · rules · CSP</text>
+    </g>
+    <g transform="translate(720,120)">
+      <rect width="112" height="74" rx="12" fill="#08202a" stroke="#3fd0e8"/><text x="56" y="32" fill="#dbe8f1" font-weight="600">Act</text><text x="56" y="52" fill="#8fe6f3" font-size="11">policy-gated tools</text>
+    </g>
+    <g transform="translate(856,120)">
+      <rect width="112" height="74" rx="12" fill="#13102a" stroke="#8b7cf6"/><text x="56" y="32" fill="#dbe8f1" font-weight="600">Generate</text><text x="56" y="52" fill="#b2a8ff" font-size="11">streamed answer</text>
+    </g>
+    <g transform="translate(992,120)">
+      <rect width="168" height="74" rx="12" fill="#08202a" stroke="#3fd0e8"/><text x="84" y="32" fill="#dbe8f1" font-weight="600">Verify → Learn</text><text x="84" y="52" fill="#8fe6f3" font-size="11">claims vs facts · memory</text>
+    </g>
+    <g stroke="#4c6070" stroke-width="1.5" marker-end="url(#a)">
+      <path d="M152,157 H174"/><path d="M288,157 H310"/><path d="M424,157 H446"/><path d="M560,157 H582"/><path d="M696,157 H718"/><path d="M832,157 H854"/><path d="M968,157 H990"/>
+    </g>
+  </g>
+
+  <!-- data layer -->
+  <g font-size="12" text-anchor="middle">
+    <g transform="translate(312,250)"><rect width="248" height="62" rx="12" fill="#0d151f" stroke="#233446"/><text x="124" y="27" fill="#dbe8f1" font-weight="600">Memory · documents · web</text><text x="124" y="46" fill="#7f95a6" font-size="11">7 layers, hybrid BM25 + vectors, encrypted</text></g>
+    <g transform="translate(584,250)"><rect width="248" height="62" rx="12" fill="#0d151f" stroke="#233446"/><text x="124" y="27" fill="#dbe8f1" font-weight="600">Temporal knowledge graph</text><text x="124" y="46" fill="#7f95a6" font-size="11">every belief has a learned and retired time</text></g>
+    <g transform="translate(856,250)"><rect width="304" height="62" rx="12" fill="#0d151f" stroke="#233446"/><text x="152" y="27" fill="#dbe8f1" font-weight="600">Agents · optimizers · voice · vision</text><text x="152" y="46" fill="#7f95a6" font-size="11">task graphs, NSGA-II, Whisper, Piper, LLaVA</text></g>
+    <g stroke="#233446" stroke-dasharray="3 4"><path d="M504,194 V250"/><path d="M640,194 V250"/><path d="M776,194 V222 H1008 V250"/></g>
+  </g>
+
+  <!-- showpiece layer -->
+  <rect x="40" y="350" width="1120" height="170" rx="16" fill="#3fd0e8" opacity=".04"/>
+  <rect x="40" y="350" width="1120" height="170" rx="16" fill="none" stroke="#3fd0e8" stroke-opacity=".35"/>
+  <text x="60" y="378" fill="#3fd0e8" font-size="12" font-weight="600" letter-spacing="3">SEE INSIDE IT</text>
+  <g font-size="12">
+    <g transform="translate(60,394)"><rect width="200" height="108" rx="12" fill="#0d151f" stroke="#233446"/><text x="14" y="26" fill="#dbe8f1" font-weight="600" font-size="13">Glass box</text><text x="14" y="48" fill="#7f95a6">every stage and LLM call</text><text x="14" y="66" fill="#7f95a6">timed, with retrieval scores,</text><text x="14" y="84" fill="#7f95a6">proofs and verifier verdicts</text></g>
+    <g transform="translate(278,394)"><rect width="200" height="108" rx="12" fill="#0d151f" stroke="#233446"/><text x="14" y="26" fill="#dbe8f1" font-weight="600" font-size="13">What if…</text><text x="14" y="48" fill="#7f95a6">assume or deny facts; rules</text><text x="14" y="66" fill="#7f95a6">re-run on a sandboxed copy</text><text x="14" y="84" fill="#7f95a6">and the graph shows the diff</text></g>
+    <g transform="translate(496,394)"><rect width="200" height="108" rx="12" fill="#0d151f" stroke="#233446"/><text x="14" y="26" fill="#dbe8f1" font-weight="600" font-size="13">Time travel</text><text x="14" y="48" fill="#7f95a6">replay how beliefs formed</text><text x="14" y="66" fill="#7f95a6">and changed; rules re-derived</text><text x="14" y="84" fill="#7f95a6">at every point in the past</text></g>
+    <g transform="translate(714,394)"><rect width="200" height="108" rx="12" fill="#0d151f" stroke="#233446"/><text x="14" y="26" fill="#dbe8f1" font-weight="600" font-size="13">Mission control</text><text x="14" y="48" fill="#7f95a6">live dependency graph of a</text><text x="14" y="66" fill="#7f95a6">background goal as agents</text><text x="14" y="84" fill="#7f95a6">plan, run, verify and retry</text></g>
+    <g transform="translate(932,394)"><rect width="208" height="108" rx="12" fill="#0d151f" stroke="#233446"/><text x="14" y="26" fill="#dbe8f1" font-weight="600" font-size="13">HUD</text><text x="14" y="48" fill="#7f95a6">full-screen voice mode; the</text><text x="14" y="66" fill="#7f95a6">orb is drawn from your mic</text><text x="14" y="84" fill="#7f95a6">and AETHER's own voice</text></g>
+  </g>
+</svg>
