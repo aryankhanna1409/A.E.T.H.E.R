@@ -1,9 +1,10 @@
 """In-process GGUF models through llama-cpp-python (no Ollama, no server).
 
-Recommended models for a Windows 11 PC (download the .gguf once from Hugging Face):
-- 8 GB VRAM or 16 GB RAM: Qwen2.5-7B-Instruct Q4_K_M  (~4.7 GB)
-- 12+ GB VRAM:             Qwen2.5-14B-Instruct Q4_K_M (~9 GB)
-- Low-end laptop:          Qwen2.5-3B-Instruct Q4_K_M  (~2 GB)
+Recommended models (download the .gguf once with scripts/get_model.py):
+- 4 GB VRAM + 16 GB RAM (RTX 3050 Laptop): Qwen2.5-7B Q4_K_M, ~20 layers on GPU,
+  or Qwen2.5-3B Q4_K_M fully on GPU when speed matters more than quality
+- 8 GB+ VRAM:  Qwen2.5-7B Q4_K_M fully on GPU
+- 12 GB+ VRAM: Qwen2.5-14B Q4_K_M
 For NVIDIA GPUs install the CUDA wheel (see README).
 """
 from __future__ import annotations
@@ -30,7 +31,7 @@ class LlamaCppProvider:
                 f"No GGUF model found at '{cfg.model_path}'. Download one (see README, "
                 "'Get a model') and set [llm].model_path in aether.toml.")
         kwargs = dict(model_path=str(path), n_ctx=cfg.context_tokens, n_gpu_layers=cfg.gpu_layers,
-                      verbose=False)
+                      n_batch=cfg.batch_size, flash_attn=cfg.flash_attn, verbose=False)
         if cfg.threads:
             kwargs["n_threads"] = cfg.threads
         if cfg.chat_format:

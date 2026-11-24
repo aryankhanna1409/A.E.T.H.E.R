@@ -2,9 +2,10 @@
 This is the only time AETHER needs the internet for its brain; afterwards
 the model runs fully offline in-process.
 
-Usage:  python scripts/get_model.py            (7B, recommended for 8 GB+ VRAM / 16 GB RAM)
-        python scripts/get_model.py small      (3B, for laptops)
-        python scripts/get_model.py large      (14B, for 12 GB+ VRAM)
+Usage:  python scripts/get_model.py            (7B, ~4.7 GB: the default; on a 4 GB RTX 3050
+                                                it runs split between GPU and CPU)
+        python scripts/get_model.py small      (3B, ~2 GB: fits fully in 4 GB VRAM, faster, weaker)
+        python scripts/get_model.py large      (14B, ~9 GB: for 12 GB+ VRAM)
 """
 import sys
 from pathlib import Path

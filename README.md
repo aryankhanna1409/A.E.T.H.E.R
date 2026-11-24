@@ -40,11 +40,16 @@ Terminal mode: `.\.venv\Scripts\aether`. Type `/help` for commands (`/prefs`, `/
 
 ### Choosing a model
 
-| Your PC | Model | Command |
-| --- | --- | --- |
-| Laptop, 8 GB RAM | Qwen2.5-3B-Instruct Q4_K_M (~2 GB) | `get_model.py small` |
-| 8 GB VRAM or 16 GB RAM | Qwen2.5-7B-Instruct Q4_K_M (~4.7 GB) | `get_model.py` |
-| 12 GB+ VRAM | Qwen2.5-14B-Instruct Q4_K_M (~9 GB) | `get_model.py large` |
+The defaults are tuned for an **HP Victus 15** (RTX 3050 Laptop 4 GB, Ryzen 5 5600H, 16 GB RAM).
+
+| Your PC | Model | Settings | Command |
+| --- | --- | --- | --- |
+| RTX 3050 Laptop 4 GB, 16 GB RAM (default) | Qwen2.5-7B-Instruct Q4_K_M (~4.7 GB) | `gpu_layers = 20`, `context_tokens = 6144`, `threads = 6` | `get_model.py` |
+| Same laptop, speed over quality | Qwen2.5-3B-Instruct Q4_K_M (~2 GB) | `gpu_layers = -1`, `context_tokens = 8192` | `get_model.py small` |
+| 8 GB+ VRAM | Qwen2.5-7B-Instruct Q4_K_M | `gpu_layers = -1` | `get_model.py` |
+| 12 GB+ VRAM | Qwen2.5-14B-Instruct Q4_K_M (~9 GB) | `gpu_layers = -1` | `get_model.py large` |
+
+The 7B model doesn't fit in 4 GB of VRAM, so about 20 of its 28 layers run on the GPU and the rest on the CPU. Expect roughly 6 to 12 tokens per second with the 7B model and 30+ with the 3B. Measure the real numbers on your laptop with `python scripts\tune_gpu.py`, which tries several `gpu_layers` values and prints the fastest one that fits. Plug the laptop in and use the "Performance" power mode, because on battery the GPU is throttled hard.
 
 Any instruct GGUF works; llama.cpp reads the chat template from the file. Structured outputs (the intermediate representation) are enforced with a JSON grammar, so even small models return valid JSON.
 

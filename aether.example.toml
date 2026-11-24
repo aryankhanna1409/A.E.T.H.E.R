@@ -4,16 +4,24 @@ max_plan_steps = 8
 
 [llm]
 backend = "llama_cpp"            # in-process llama.cpp; no Ollama, no server, no API
-model_path = "C:/AETHER/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-context_tokens = 8192
-gpu_layers = -1                  # -1 = offload all layers to the GPU (CUDA build); 0 = CPU only
+# Tuned for HP Victus 15: RTX 3050 Laptop (4 GB), Ryzen 5 5600H, 16 GB RAM.
+model_path = "C:/AETHER/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+context_tokens = 6144
+gpu_layers = 20                  # 7B on 4 GB VRAM: 18-22 fits; run scripts/tune_gpu.py to pick
+threads = 6                      # the 5600H's 6 physical cores
+batch_size = 256
+flash_attn = true
+# Faster alternative that fits entirely in 4 GB VRAM (lower quality):
+#   model_path = "C:/AETHER/models/qwen2.5-3b-instruct-q4_k_m.gguf"
+#   gpu_layers = -1
+#   context_tokens = 8192
 temperature = 0.6
 max_reply_tokens = 1024
 
 [embeddings]
 backend = "sentence_transformers"  # or "lexical" for BM25 only (no embedding model)
 model = "BAAI/bge-small-en-v1.5"   # downloaded once into the Hugging Face cache, offline after
-device = "cpu"                     # "cuda" if you have an NVIDIA GPU
+device = "cpu"                     # keep on CPU: the 4 GB of VRAM is reserved for the LLM
 
 [memory]
 rag_min_score = 0.25

@@ -22,9 +22,14 @@ def default_home() -> Path:
 class LLMConfig(BaseModel):
     backend: str = "llama_cpp"  # "llama_cpp" | "transformers"
     model_path: str = ""  # path to a .gguf file (llama_cpp) or HF folder (transformers)
-    context_tokens: int = 8192
-    gpu_layers: int = -1  # -1 = offload everything that fits; 0 = CPU only
-    threads: int = 0  # 0 = auto
+    # Defaults fit Aryan's HP Victus 15 (RTX 3050 Laptop 4 GB, Ryzen 5 5600H, 16 GB RAM)
+    # running Qwen2.5-7B Q4_K_M: ~20 of 28 layers on the GPU, the rest on the CPU.
+    # Run `python scripts/tune_gpu.py` to measure the best value on your machine.
+    context_tokens: int = 6144
+    gpu_layers: int = 20  # -1 = offload everything; 0 = CPU only
+    threads: int = 6  # physical cores; hyperthreads slow llama.cpp down
+    batch_size: int = 256  # prompt-processing batch; smaller saves VRAM
+    flash_attn: bool = True  # less VRAM for the KV cache on RTX cards
     temperature: float = 0.6
     max_reply_tokens: int = 1024
     chat_format: str | None = None  # None = read template from the GGUF

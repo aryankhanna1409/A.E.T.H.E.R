@@ -7,7 +7,8 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python -m pip install --upgrade pip
 
 if ($Cuda) {
-  # Prebuilt CUDA 12.4 wheel for NVIDIA GPUs (no compiler needed)
+  # Prebuilt CUDA 12.4 wheel for NVIDIA GPUs such as the RTX 3050 (no compiler needed).
+  # Needs a recent NVIDIA driver (550 or newer): update it from the NVIDIA app if the GPU is not used.
   .\.venv\Scripts\pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
 } else {
   .\.venv\Scripts\pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
