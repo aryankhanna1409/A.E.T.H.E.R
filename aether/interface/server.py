@@ -13,7 +13,8 @@ import webbrowser
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..app import build
@@ -79,6 +80,16 @@ class FeedbackIn(BaseModel):
     turn_id: int | None = None
 
 
+class ReminderIn(BaseModel):
+    text: str
+    when: str = "tomorrow"
+
+
+class ConvEdit(BaseModel):
+    title: str | None = None
+    pinned: bool | None = None
+
+
 class SettingsIn(BaseModel):
     section: str
     values: dict
@@ -93,7 +104,9 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     @app.get("/")
     def index():
-        return FileResponse(WEB / "index.html")
+        return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-cache"})
+
+    app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 
     @app.get("/api/status")
     def status():
@@ -113,6 +126,113 @@ def create_app(config_path: str | None = None) -> FastAPI:
             raise HTTPException(503, str(e))
         last["state"] = r.state.model_dump()
         return {"text": r.text, "notices": r.notices, "state": last["state"]}
+
+    @app.post("/api/chat/stream")
+    def chat_stream(body: ChatIn):
+        """Server-sent events: stage, tool, token, replace, then done (or error)."""
+        import json
+        import queue as _q
+        q: _q.Queue = _q.Queue()
+
+        def work():
+            try:
+                r = aether.handle(body.text, on_event=lambda kind, data: q.put((kind, data)))
+                last["state"] = r.state.model_dump()
+                q.put(("done", {"text": r.text, "notices": r.notices, "state": last["state"],
+                                "turn_id": r.turn_id, "session": aether.session}))
+            except Exception as e:
+                q.put(("error", {"message": str(e)}))
+            q.put(None)
+
+        threading.Thread(target=work, daemon=True, name="aether-turn").start()
+
+        def events():
+            while True:
+                item = q.get()
+                if item is None:
+                    return
+                kind, data = item
+                yield f"event: {kind}\ndata: {json.dumps(data, default=str)}\n\n"
+
+        return StreamingResponse(events(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    # ---------------------------------------------------------------- conversations, search, graph
+    @app.get("/api/conversations")
+    def conversations():
+        return {"current": aether.session, "items": aether.conversations.list()}
+
+    @app.post("/api/conversations")
+    def new_conversation():
+        return {"session": aether.new_conversation()}
+
+    @app.get("/api/conversations/{session}")
+    def open_conversation(session: str):
+        return {"session": session, "turns": aether.open_conversation(session)}
+
+    @app.patch("/api/conversations/{session}")
+    def edit_conversation(session: str, body: ConvEdit):
+        if body.title is not None:
+            aether.conversations.rename(session, body.title)
+        if body.pinned is not None:
+            aether.conversations.pin(session, body.pinned)
+        return {"ok": True}
+
+    @app.delete("/api/conversations/{session}")
+    def delete_conversation(session: str):
+        aether.conversations.delete(session)
+        if session == aether.session:
+            aether.new_conversation()
+        return {"ok": True}
+
+    @app.get("/api/search")
+    def search(q: str):
+        mems = aether.store.search(q, k=12, min_score=0.05)
+        ql = q.lower()
+        facts = [t for t in aether.kg.all() if ql in f"{t.s} {t.p} {t.o}".lower().replace("_", " ")][:15]
+        return {
+            "memories": [{"id": m.id, "layer": m.layer, "text": m.text[:300], "score": round(m.score, 3),
+                          "path": m.meta.get("path", "")} for m in mems],
+            "facts": [{"id": t.id, "s": t.s, "p": t.p, "o": t.o} for t in facts],
+            "conversations": aether.conversations.search(q, 15),
+        }
+
+    @app.get("/api/graph")
+    def graph():
+        triples = aether.kg.all()
+        derived, _ = aether.rules.run(persist=False)
+        nodes, links = {}, []
+        edges = [(t.s, t.p, t.o, "fact", t.id) for t in triples]
+        edges += [(*d.triple, "derived", None) for d in derived[:200]]
+        for s_, p_, o_, kind, tid in edges:
+            for n in (s_, o_):
+                nodes.setdefault(n, {"id": n, "degree": 0, "user": n == "user"})
+                nodes[n]["degree"] += 1
+            links.append({"source": s_, "target": o_, "label": p_, "kind": kind, "id": tid})
+        return {"nodes": list(nodes.values()), "links": links}
+
+    @app.get("/api/brief")
+    def brief():
+        from datetime import datetime
+        return {"text": aether.proactive.brief(datetime.now()),
+                "reminders": [r.__dict__ for r in aether.reminders.open()[:8]],
+                "goals": aether.graph.goals(5)}
+
+    @app.get("/api/config")
+    def config_view():
+        c = aether.cfg
+        from ..core.settings import TUNABLE
+        return {"user_name": c.user_name, "model": Path(c.llm.model_path).name if c.llm.model_path else "",
+                "gpu_layers": c.llm.gpu_layers, "context_tokens": c.llm.context_tokens, "temperature": c.llm.temperature,
+                "memory": c.memory.model_dump(), "context": c.context.model_dump(),
+                "security": {k: getattr(c.security, k) for k in ("network", "encrypt_at_rest", "screen_access",
+                                                                  "ui_automation", "allowed_read_roots",
+                                                                  "allowed_write_roots", "shell_allow")},
+                "voice": {"tts": bool(c.voice.tts_voice_path), "stt_model": c.voice.stt_model},
+                "vision": bool(c.vision.model_path), "proactive": c.proactive.model_dump(),
+                "tunable": {k: sorted(v) for k, v in TUNABLE.items()},
+                "tools": [{"name": t.name, "category": t.category, "description": t.description}
+                          for t in aether.tools.tools.values()]}
 
     @app.get("/api/pending")
     def get_pending():
@@ -174,6 +294,10 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.get("/api/reminders")
     def reminders():
         return [r.__dict__ for r in aether.reminders.open()]
+
+    @app.post("/api/reminders")
+    def add_reminder(body: ReminderIn):
+        return aether.reminders.add(body.text, body.when or "tomorrow").__dict__
 
     @app.post("/api/reminders/{rid}")
     def reminder_status(rid: int, status: str = "done"):
@@ -374,6 +498,36 @@ def create_app(config_path: str | None = None) -> FastAPI:
             raise HTTPException(503, str(e))
         aether.store.add(f"Looked at an image ({file.filename}): {answer[:300]}", "episodic", "observed", 0.6)
         return {"text": answer}
+
+    def _stt():
+        if not hasattr(app.state, "stt"):
+            try:
+                from ..speech.stt import SpeechToText
+                app.state.stt = SpeechToText(aether.cfg.voice)
+            except Exception as e:
+                raise HTTPException(503, f"Speech-to-text unavailable: {e}")
+        return app.state.stt
+
+    @app.post("/api/transcribe")
+    def transcribe(file: UploadFile = File(...)):
+        import tempfile
+        stt = _stt()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm", dir=aether.cfg.home) as tmp:
+            tmp.write(file.file.read())
+        try:
+            return {"text": stt.transcribe(tmp.name)}
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
+    @app.post("/api/speak")
+    def speak(body: Text):
+        if not hasattr(app.state, "tts"):
+            try:
+                from ..speech.tts import TextToSpeech
+                app.state.tts = TextToSpeech(aether.cfg.voice)
+            except Exception as e:
+                raise HTTPException(503, f"Text-to-speech unavailable: {e}")
+        return Response(app.state.tts.wav_bytes(body.text[:4000]), media_type="audio/wav")
 
     @app.post("/api/voice")
     def voice(file: UploadFile = File(...)):

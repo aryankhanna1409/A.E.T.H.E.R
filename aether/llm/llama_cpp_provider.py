@@ -37,6 +37,14 @@ class LlamaCppProvider:
         if cfg.chat_format:
             kwargs["chat_format"] = cfg.chat_format
         self.model = Llama(**kwargs)
+        if getattr(cfg, "prompt_cache_mb", 0) > 0:
+            # The persona, preferences and tool catalog are the same every turn; caching their KV state
+            # in RAM skips re-reading them, which is most of the prompt time on a partly offloaded 7B.
+            try:
+                from llama_cpp import LlamaRAMCache
+                self.model.set_cache(LlamaRAMCache(capacity_bytes=cfg.prompt_cache_mb * 1024 * 1024))
+            except Exception:  # pragma: no cover - older llama-cpp-python
+                pass
         self.cfg = cfg
         self._lock = threading.Lock()  # llama.cpp contexts are not thread-safe
 

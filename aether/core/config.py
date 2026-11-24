@@ -33,6 +33,7 @@ class LLMConfig(BaseModel):
     temperature: float = 0.6
     max_reply_tokens: int = 1024
     chat_format: str | None = None  # None = read template from the GGUF
+    prompt_cache_mb: int = 768  # reuse the KV cache for the shared prompt prefix (RAM); 0 = off
 
 
 class EmbeddingConfig(BaseModel):

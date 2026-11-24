@@ -79,7 +79,8 @@ OPPOSITES = {"concise": "detailed", "detailed": "concise", "technical": "simple"
 
 NEGATIVE_CUE = re.compile(r"\b(stop|don'?t|do not|never|hate|dislike|annoy|can'?t stand|no more|quit|enough with)\b", re.I)
 POSITIVE_CUE = re.compile(r"\b(prefer|i like|i love|please (always|be)|keep it|i want|be more|make it)\b", re.I)
-AIMED_AT_ME = re.compile(r"\b(you|your|reply|replies|response|responses|answers?|explain|format|intro)", re.I)
+AIMED_AT_ME = re.compile(r"\b(you|your|reply|replies|response|responses|answers?|explain|format|intro)|"
+                         r"^\s*(please\s+)?(stop|don'?t|never|no more|quit|enough with)\b", re.I)  # bare commands count too
 CUSTOM_BAN = re.compile(r"""(?:stop|don'?t|never) (?:saying|say|use|using) ["'“](.+?)["'”]""", re.I)
 
 ACTIVATE_AT = 0.7

@@ -22,6 +22,23 @@ No cloud APIs. No Ollama. The language model runs **in-process** through `llama-
 | Proactive | Due reminders, a morning brief, finished goals and gentle check-ins, with quiet hours and a rate limit |
 | Security | Policy engine on every action, secrets denylist, prompt-injection tripwire with taint mode, encryption at rest (DPAPI-protected key), audit log, emergency stop |
 
+## The app
+
+![Chat with the live thinking pipeline](docs/screenshots/chat.png)
+
+`aether-server` opens a local web app at `http://127.0.0.1:8765` (it never listens beyond your PC and loads nothing from the internet):
+
+* **Chat:** replies stream word by word while the side panel shows each stage live (perceive, interpret, retrieve, reason, act, write, verify), with the facts, tools and corrections behind the answer. Markdown, code with copy buttons, colour-coded citations, 👍/👎, read-aloud, saved conversations with search and pinning, image drop-in and push-to-talk.
+* **Today:** a brief, reminders, goals and anything waiting for your approval.
+* **Memory:** search and forget memories, toggle preferences and see when they changed, confirm or reject patterns AETHER noticed.
+* **Knowledge:** an interactive map of everything AETHER knows, with rule-derived links, proofs ("why?"), logic queries and your own rules.
+* **Goals, Lab, Self, Activity, Settings:** background agents, the optimization workspace, performance and self-improvement, the full audit log with undo, and safe settings with sliders.
+* `Ctrl K` opens a command palette that also searches memories, facts and past chats. Dark and light themes.
+
+| Knowledge map | Light theme |
+| --- | --- |
+| ![Knowledge graph](docs/screenshots/knowledge.png) | ![Light theme](docs/screenshots/light.png) |
+
 ## Setup on Windows 11 (HP Victus 15 defaults)
 
 Requirements: Python 3.11 (from python.org, with the `py` launcher), and for the GPU an NVIDIA driver 550 or newer. The defaults in `aether.example.toml` are tuned for an RTX 3050 Laptop (4 GB), Ryzen 5 5600H and 16 GB RAM.
@@ -57,7 +74,7 @@ Structured outputs are enforced with a JSON grammar, so even small models return
 ## Check it on your PC
 
 ```powershell
-.\.venv\Scripts\pytest                       # 103 unit tests, no model needed, about 15 s
+.\.venv\Scripts\pytest                       # 111 unit tests, no model needed, about 15 s
 .\.venv\Scripts\aether-eval                  # 10 end-to-end scenarios with YOUR model, 5-15 min
 .\.venv\Scripts\python scripts\bench.py      # speed against the performance budget
 ```

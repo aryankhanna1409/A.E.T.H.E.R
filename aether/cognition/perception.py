@@ -32,6 +32,16 @@ FILE_ACTION = re.compile(r"\b(create|write|save|make) (a |the )?(file|document|n
 SELF_FACT = re.compile(r"\bmy (\w+(?: \w+)?) is ([\w' -]{2,40}?)(?:[.,!]|$)|\bi (live|work) (?:in|at) ([\w' -]{2,40}?)(?:[.,!]|$)", re.I)
 
 
+SMALL_TALK = re.compile(r"^\s*(hi|hey|hello|yo|hiya|good (morning|afternoon|evening|night)|thanks?( you)?( so much| a lot)?|"
+                        r"thx|ty|ok(ay)?|cool|nice|great|awesome|perfect|got it|sounds good|bye|see you|gn|lol|haha)"
+                        r"( aether| jarvis)?[\s!.?,:)]*$", re.I)
+
+
+def is_small_talk(text: str) -> bool:
+    """Greetings and acknowledgements: answered directly, without spending a model call on interpretation."""
+    return bool(SMALL_TALK.match(text)) and len(text) < 60
+
+
 def heuristic_ir(text: str) -> IntentIR:
     """Rule-based perception used when no LLM is loaded or its output is invalid."""
     needs: list = []
@@ -58,6 +68,9 @@ def heuristic_ir(text: str) -> IntentIR:
 def perceive(llm: LLMProvider | None, text: str, recent: list[tuple[str, str]], tools: list[str]) -> IntentIR:
     base = heuristic_ir(text)
     if llm is None:
+        return base
+    if is_small_talk(text):  # fast path: saves a full LLM call (seconds on a 4 GB GPU)
+        base.intent, base.confidence, base.needs = "chit_chat", 0.9, ["direct"]
         return base
     history = "\n".join(f"{r}: {t[:300]}" for r, t in recent[-4:])
     try:
