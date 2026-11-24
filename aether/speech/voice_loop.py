@@ -14,6 +14,7 @@ import time
 
 from ..core.config import VoiceConfig
 from ..core.logging import log
+from .chunker import SentenceChunker, clean
 from .vad import Segmenter, rms
 
 FRAME_MS = 30
@@ -49,6 +50,7 @@ class VoiceAssistant:
         self.running = True
         self.seg = Segmenter(cfg.vad_energy, cfg.silence_ms, FRAME_MS)
         self.barge_frames = 0
+        self._gen = 0  # bumped to cancel queued speech
 
     def _on_audio(self, indata, frames, t, status):
         try:
@@ -57,21 +59,57 @@ class VoiceAssistant:
             pass
 
     def handle_utterance(self, audio) -> str:
+        """Transcribe, answer, and start speaking at the first complete sentence while the
+        model is still writing the rest (see speech/chunker.py)."""
         self.state = "thinking"
         text = self.stt.transcribe(audio)
         if not text:
             self.state = "listening"
             return ""
         log.info("heard: %s", text)
-        reply = self.aether.handle(text)
-        self.state = "speaking"
-        threading.Thread(target=self._speak, args=(reply.text,), daemon=True).start()
+        self._gen += 1
+        gen, q, started, replaced = self._gen, queue.Queue(), [False], [False]
+        chunker, streamed = SentenceChunker(), []
+
+        def start():
+            if not started[0]:
+                started[0] = True
+                self.state = "speaking"
+                threading.Thread(target=self._speak_queue, args=(q, gen), daemon=True).start()
+
+        def on_event(kind, data):
+            if kind == "token" and not replaced[0]:
+                streamed.append(data.get("text", ""))
+                for sentence in chunker.feed(data.get("text", "")):
+                    q.put(sentence)
+                    start()
+            elif kind == "replace" and clean(data.get("text", "")) != clean("".join(streamed)):
+                replaced[0] = True  # the verifier changed what was said: stop and say the corrected answer
+
+        reply = self.aether.handle(text, on_event=on_event, spoken=True)
+        if replaced[0] or not started[0]:
+            if started[0]:
+                self.tts.stop()
+                self._gen += 1
+                gen, q, started[0] = self._gen, queue.Queue(), False
+            q.put(reply.text)
+        else:
+            for sentence in chunker.flush():
+                q.put(sentence)
+        q.put(None)
+        start()
         return reply.text
 
-    def _speak(self, text: str) -> None:
-        self.tts.say(text)
-        self.state = "listening"
-        self.follow_up_until = time.time() + FOLLOW_UP_S
+    def _speak_queue(self, q: queue.Queue, gen: int) -> None:
+        while True:
+            sentence = q.get()
+            if sentence is None or gen != self._gen:
+                break
+            if not self.tts.say(sentence):
+                break  # interrupted (barge-in)
+        if gen == self._gen and self.state == "speaking":
+            self.state = "listening"
+            self.follow_up_until = time.time() + FOLLOW_UP_S
 
     def step(self, frame) -> None:
         """Process one 30 ms float32 frame (exposed for testing)."""
@@ -85,6 +123,7 @@ class VoiceAssistant:
             if self.cfg.barge_in and rms(frame) >= self.cfg.vad_energy * 2.5:
                 self.barge_frames += 1
                 if self.barge_frames >= 8:  # ~240 ms of clear speech interrupts
+                    self._gen += 1  # drop the sentences still queued
                     self.tts.stop()
                     self.state = "listening"
                     self.seg.reset()

@@ -34,6 +34,7 @@ Targets on an RTX 3050 Laptop (4 GB) with Qwen2.5-7B Q4_K_M at 20 GPU layers. Ch
 | Measure | Budget (median) |
 | --- | --- |
 | Start-up (model load) | 45 s |
+| First word of an answer (streamed; voice starts speaking here) | 6 s |
 | Small talk reply | 8 s |
 | General question | 25 s |
 | Answer from your documents | 30 s |

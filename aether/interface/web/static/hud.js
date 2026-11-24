@@ -5,11 +5,44 @@ import { esc } from "./md.js";
 
 // What the HUD shows and says: the answer without Markdown syntax, code or tables.
 const plain = t => t.replace(/```[\s\S]*?(```|$)/g, " ").replace(/^\s*\|.*\|\s*$/gm, " ").replace(/^\s*>\s?/gm, "")
-  .replace(/\[(web|doc|memory)\s*\d+\]/gi, "").replace(/[*_#`]/g, "").replace(/\s+/g, " ").trim();
+  .replace(/\[(web|doc|memory)\s*\d+\]/gi, "").replace(/https?:\/\/\S+/g, "a link on screen").replace(/^\s*[-•]\s+/gm, "")
+  .replace(/[*_#`]/g, "").replace(/\s+/g, " ").replace(/\s+([.,!?;:])/g, "$1").trim();
+
+// Port of aether/speech/chunker.py: complete sentences out of a token stream, code and tables skipped.
+const END = /(?<!\n\d)(?<!\n\d\d)(?<!^\d)[.!?…]["')\]]*\s+|\n\s*\n|\n(?=\s*(?:[-*•]|\d+[.)])\s)/g;
+export class Chunker {
+  constructor(min = 24) { this.min = min; this.buf = ""; this.code = false; }
+  feed(t) {
+    this.buf += t; const out = [];
+    for (;;) {
+      if (this.code) {
+        const i = this.buf.indexOf("```"); if (i < 0) { this.buf = this.buf.slice(-2); return out; }
+        const e = this.buf.indexOf("\n", i + 3); if (e < 0) return out;
+        this.buf = this.buf.slice(e + 1); this.code = false; continue;
+      }
+      const i = this.buf.indexOf("```");
+      if (i >= 0) { out.push(...this.split(this.buf.slice(0, i), true)); this.buf = this.buf.slice(i + 3); this.code = true; continue; }
+      out.push(...this.split(null, false)); return out;
+    }
+  }
+  flush() { if (this.code) { this.buf = ""; this.code = false; return []; } const o = this.split(this.buf, true); this.buf = ""; return o; }
+  split(text, final) {
+    const src = text ?? this.buf, out = []; let start = 0;
+    for (const m of src.matchAll(END)) {
+      const piece = src.slice(start, m.index + m[0].length);
+      if (piece.trim().length < this.min) continue;
+      const s = plain(piece); if (s) out.push(s); start = m.index + m[0].length;
+    }
+    let rest = src.slice(start);
+    if (final) { const s = plain(rest); if (s) out.push(s); rest = ""; }
+    if (text == null) this.buf = rest;
+    return out;
+  }
+}
 
 export const HUD = {
   deps: null, el: null, ctx: null, analyser: null, freq: null, raf: 0, mode: "idle", level: 0, spin: 0,
-  rec: null, stream: null, audio: null, answer: "", t0: 0,
+  rec: null, stream: null, audio: null, answer: "", t0: 0, queue: [], gen: 0, playing: false, voiceOff: false, streamDone: true,
 
   init(deps) { this.deps = deps; },
 
@@ -41,7 +74,7 @@ export const HUD = {
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.analyser = this.ctx.createAnalyser(); this.analyser.fftSize = 256; this.analyser.smoothingTimeConstant = .78;
     this.freq = new Uint8Array(this.analyser.frequencyBinCount);
-    this.t0 = performance.now();
+    this.t0 = performance.now(); this.voiceOff = false; this.queue = []; this.playing = false; this.streamDone = true;
     this.clock = setInterval(() => { el.querySelector(".hud-clock").textContent = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }, 500);
     const loop = () => { this.draw(); this.raf = requestAnimationFrame(loop); }; loop();
   },
@@ -50,7 +83,7 @@ export const HUD = {
     if (!this.el) return;
     cancelAnimationFrame(this.raf); clearInterval(this.clock);
     removeEventListener("keydown", this.onKey); removeEventListener("keyup", this.onKey); removeEventListener("resize", this.resize);
-    this.stream?.getTracks().forEach(t => t.stop()); this.audio?.pause();
+    this.stream?.getTracks().forEach(t => t.stop()); this.cancelSpeech();
     this.ctx?.close(); this.el.remove(); this.el = null; this.src = null; this.stream = null; this.rec = null;
   },
 
@@ -66,7 +99,7 @@ export const HUD = {
 
   async listen() {
     if (this.rec || this.mode === "thinking") return;
-    this.audio?.pause();
+    this.cancelSpeech();  // barge-in: talking over AETHER stops it
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
     } catch { this.setMode("idle", "Microphone blocked", "Allow microphone access for 127.0.0.1, or type below"); return; }
@@ -97,36 +130,75 @@ export const HUD = {
     this.el.querySelector(".hud-you").textContent = text;
     const ai = this.el.querySelector(".hud-ai"); ai.textContent = "";
     this.answer = "";
+    this.cancelSpeech();
+    this.streamDone = false; this.spoke = false;
+    const chunker = new Chunker();
+    let replaced = false;
     this.setMode("thinking", "Thinking", "");
     try {
       await this.deps.streamChat(text, (kind, d) => {
         if (!this.el) return;
-        if (kind === "stage" && !d.done) this.setMode("thinking", d.label, "");
+        if (kind === "stage" && !d.done && this.mode !== "speaking") this.setMode("thinking", d.label, "");
         else if (kind === "tool" && d.running) this.setMode("thinking", `Using ${d.tool}`, "");
-        else if (kind === "token") { this.answer += d.text; const p = plain(this.answer); ai.textContent = p.length > 200 ? "…" + p.slice(-200) : p; }
-        else if (kind === "replace") { this.answer = d.text; }
+        else if (kind === "token") {
+          this.answer += d.text; const p = plain(this.answer); ai.textContent = p.length > 200 ? "…" + p.slice(-200) : p;
+          if (!replaced) chunker.feed(d.text).forEach(s => this.enqueue(s));  // speak while it is still writing
+        }
+        else if (kind === "replace") {
+          // The verifier rewrote the draft. If only unspoken parts changed (e.g. a bad citation was removed), keep talking.
+          if (plain(d.text) !== plain(this.answer)) { replaced = true; this.cancelSpeech(); }
+          this.answer = d.text;
+        }
         else if (kind === "done") { this.answer = d.text; const p = plain(d.text); ai.textContent = p.length > 220 ? p.slice(0, 220) + "…" : p; }
         else if (kind === "error") ai.textContent = d.message;
-      });
+      }, { voice: true });
     } catch (e) { ai.textContent = e.message; }
     this.deps.onTurn?.();
-    await this.say(this.answer);
+    if (replaced || !this.spoke) {  // nothing streamed, or the verifier corrected the draft: say the final answer
+      this.cancelSpeech();
+      const c = new Chunker(); [...c.feed(this.answer), ...c.flush()].forEach(s => this.enqueue(s));
+    } else chunker.flush().forEach(s => this.enqueue(s));
+    this.streamDone = true;
+    this.maybeIdle();
   },
 
-  async say(text) {
-    if (!this.el || !text) { this.setMode("idle", "Ready", "Hold <kbd>Space</kbd> to talk"); return; }
-    const spoken = plain(text).slice(0, 1200);
-    try {
-      const r = await this.deps.api("/api/speak", { method: "POST", body: { text: spoken } });
-      const url = URL.createObjectURL(await r.blob());
-      this.audio = new Audio(url);
-      if (this.ctx.state === "suspended") await this.ctx.resume();
-      const node = this.ctx.createMediaElementSource(this.audio);
-      node.connect(this.ctx.destination); this.attach(node);
-      this.setMode("speaking", "Speaking", "hold <kbd>Space</kbd> to interrupt");
-      this.audio.onended = () => { this.src?.disconnect(); this.src = null; URL.revokeObjectURL(url); if (this.mode === "speaking") this.setMode("idle", "Ready", "Hold <kbd>Space</kbd> to talk"); };
-      await this.audio.play();
-    } catch { this.setMode("idle", "Ready", "Voice output isn't set up, so I answered in text · hold <kbd>Space</kbd> to talk"); }
+  // ---- speech: sentences are synthesised in parallel and played strictly in order
+  enqueue(sentence) {
+    if (!this.el || this.voiceOff || !sentence) return;
+    this.spoke = true;
+    const gen = this.gen;
+    this.queue.push(this.deps.api("/api/speak", { method: "POST", body: { text: sentence } }).then(r => r.blob()).catch(() => null));
+    if (!this.playing) this.playLoop(gen);
+  },
+  cancelSpeech() {
+    this.gen = (this.gen || 0) + 1; this.queue = []; this.playing = false;
+    if (this.audio) { this.audio.onended = null; this.audio.pause(); this.audio = null; }
+    if (this.src && this.mode === "speaking") { this.src.disconnect(); this.src = null; }
+  },
+  async playLoop(gen) {
+    this.playing = true;
+    while (this.queue.length && gen === this.gen && this.el) {
+      const blob = await this.queue.shift();
+      if (gen !== this.gen) return;
+      if (!blob) { this.voiceOff = true; this.queue = []; break; }
+      await this.play(blob, gen);
+    }
+    if (gen === this.gen) { this.playing = false; this.maybeIdle(); }
+  },
+  async play(blob, gen) {
+    const url = URL.createObjectURL(blob);
+    const audio = this.audio = new Audio(url);
+    if (this.ctx.state === "suspended") await this.ctx.resume();
+    const node = this.ctx.createMediaElementSource(audio);
+    node.connect(this.ctx.destination); this.attach(node);
+    this.setMode("speaking", "Speaking", "hold <kbd>Space</kbd> to interrupt");
+    await new Promise(res => { audio.onended = audio.onerror = res; audio.play().catch(res); });
+    node.disconnect(); if (this.src === node) this.src = null;
+    URL.revokeObjectURL(url);
+  },
+  maybeIdle() {
+    if (!this.el || this.playing || this.queue.length || !this.streamDone || this.mode === "listening") return;
+    this.setMode("idle", "Ready", this.voiceOff ? "Voice output isn't set up, so I answered in text · hold <kbd>Space</kbd> to talk" : "Hold <kbd>Space</kbd> to talk");
   },
 
   draw() {

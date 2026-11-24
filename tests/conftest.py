@@ -60,3 +60,12 @@ def make_aether(cfg):
     def _make(llm=None, confirm=lambda _: True):
         return Aether(cfg, llm or FakeLLM(), None, confirm)
     return _make
+
+
+@pytest.fixture(autouse=True)
+def _restore_server_build():
+    """Some tests point the web server at a test instance; put the real builder back afterwards."""
+    from aether.interface import server
+    real = server.build
+    yield
+    server.build = real

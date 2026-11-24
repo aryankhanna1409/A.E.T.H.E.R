@@ -48,7 +48,7 @@ aether/
 desktop/           Tauri 2 shell
 installer/         Inno Setup script
 scripts/           Windows setup, model download, GPU tuning, benchmark, installer build
-tests/             122 tests, no model weights needed
+tests/             136 tests, no model weights needed
 ```
 
 ## Dependencies
@@ -89,10 +89,11 @@ tests/             122 tests, no model weights needed
 | 11 | Hardening | Done | Encryption at rest (DPAPI), injection tripwire + taint mode + test suite, proactive engine, real-model evals, installer, performance budget |
 | 12 | Web app and polish | Done | Streaming replies with live pipeline events, saved conversations, knowledge map, command palette, browser voice and images, prompt KV cache, small-talk fast path |
 | 13 | See inside it | Done | Glass-box traces of every turn (stages, LLM calls, retrieval scores, proofs, verifier, prompt budget), counterfactual what-if engine with graph diff, belief time travel over the temporal KG, live mission-control goal graph, HUD voice mode driven by real audio |
+| 14 | Jarvis presence, part 1 | Done | Speaks while it thinks (sentence-streamed TTS in the voice loop and HUD), spoken-reply mode, Jarvis persona, routines (deterministic voice macros through the policy engine), look-at-screen with the local vision model, optional prompt-lookup speculative decoding, first-word latency in the benchmark |
 
 ## Known limits
 
-* Everything was built and unit-tested here with a scripted model double (122 tests). It has **not yet run against real GGUF weights, a microphone, a GPU or Windows APIs**; `aether-eval` and `scripts/bench.py` are the first real check on your PC.
+* Everything was built and unit-tested here with a scripted model double (136 tests). It has **not yet run against real GGUF weights, a microphone, a GPU or Windows APIs**; `aether-eval` and `scripts/bench.py` are the first real check on your PC.
 * Small local models follow instructions less reliably than large cloud models. The symbolic layer and code-side filters catch a lot of that, but answer quality still depends on the GGUF you choose.
 * The Tauri shell and the Inno Setup installer have not been compiled here.
 * The injection scanner is a tripwire; the policy engine and taint mode are the real guarantee.
