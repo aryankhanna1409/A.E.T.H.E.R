@@ -244,6 +244,42 @@ def create_app(config_path: str | None = None) -> FastAPI:
         r = aether.tools.call("research", {"question": body.text})
         return {"ok": r.ok, "text": r.output}
 
+    from fastapi import File, Form, UploadFile
+
+    @app.post("/api/image")
+    def image(file: UploadFile = File(...), question: str = Form("What is in this image?")):
+        import tempfile
+        suffix = Path(file.filename or "img.png").suffix or ".png"
+        uploads = aether.cfg.home / "uploads"
+        uploads.mkdir(exist_ok=True)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=uploads) as tmp:
+            tmp.write(file.file.read())
+        try:
+            answer = aether.vision.describe(tmp.name, question)
+        except Exception as e:
+            raise HTTPException(503, str(e))
+        aether.store.add(f"Looked at an image ({file.filename}): {answer[:300]}", "episodic", "observed", 0.6)
+        return {"text": answer}
+
+    @app.post("/api/voice")
+    def voice(file: UploadFile = File(...)):
+        """Push-to-talk from the UI: audio in, transcript + reply out."""
+        if not hasattr(app.state, "stt"):
+            try:
+                from ..speech.stt import SpeechToText
+                app.state.stt = SpeechToText(aether.cfg.voice)
+            except Exception as e:
+                raise HTTPException(503, f"Speech-to-text unavailable: {e}")
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm", dir=aether.cfg.home) as tmp:
+            tmp.write(file.file.read())
+        text = app.state.stt.transcribe(tmp.name)
+        Path(tmp.name).unlink(missing_ok=True)
+        if not text:
+            return {"transcript": "", "text": "", "notices": ["I didn't catch that."]}
+        r = aether.handle(text)
+        return {"transcript": text, "text": r.text, "notices": r.notices, "state": r.state.model_dump()}
+
     @app.post("/api/stop")
     def stop(engaged: bool = True):
         aether.policy.emergency_stop = engaged

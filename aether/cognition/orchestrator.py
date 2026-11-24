@@ -31,6 +31,7 @@ from ..neurosymbolic.policy import PolicyEngine
 from ..neurosymbolic.rules import RuleEngine
 from ..neurosymbolic.verifier import check_answer, validate_ir
 from ..optimization.engine import optimize_schedule
+from ..perception.vision import Vision
 from ..personalization.observations import Observations
 from ..personalization.preferences import PreferenceModel
 from ..research import pipeline as research
@@ -105,6 +106,11 @@ class Aether:
         self.tools.register(Tool("kg_query", "query known facts with logic, e.g. parent_of(?p, riya)",
                                  {"pattern": "predicate(subject, object) & ..."}, "kg",
                                  lambda pattern: "\n".join(str(b) for b in self.rules.ask(pattern)) or "No matches."))
+        self.vision = Vision(cfg.vision)
+        self.tools.register(Tool("look_at_image", "understand an image or screenshot file (local vision model)",
+                                 {"path": "image file in an authorized folder", "question": "what to find out"},
+                                 "fs.read", lambda path, question="Describe this image.": self.vision.describe(path, question),
+                                 "path"))
         self.reminders = Reminders(self.db, self.lock)
         self.tools.register(Tool("remind", "set a reminder for the user",
                                  {"text": "what", "when": "e.g. tomorrow, friday, 2026-12-01"}, "memory",

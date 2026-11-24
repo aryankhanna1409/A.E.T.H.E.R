@@ -81,6 +81,28 @@ class SecurityConfig(BaseModel):
     ])
 
 
+class VoiceConfig(BaseModel):
+    # Speech runs on the CPU so the 4 GB GPU stays free for the LLM.
+    stt_model: str = "small.en"  # faster-whisper: tiny.en | base.en | small.en | medium.en
+    stt_device: str = "cpu"
+    stt_compute_type: str = "int8"
+    tts_voice_path: str = ""  # Piper voice .onnx, e.g. en_GB-alan-medium.onnx (see README)
+    wake_word: str = "hey_jarvis"  # openWakeWord built-in model name, or a path to your own .onnx
+    wake_threshold: float = 0.5
+    silence_ms: int = 900  # end of utterance after this much silence
+    vad_energy: float = 0.012  # RMS level that counts as speech; raise in noisy rooms
+    barge_in: bool = True  # interrupt AETHER by speaking while it talks
+    sample_rate: int = 16000
+
+
+class VisionConfig(BaseModel):
+    model_path: str = ""  # e.g. Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf
+    mmproj_path: str = ""  # the matching mmproj-*.gguf
+    handler: str = "qwen25vl"  # qwen25vl | llava15 | llava16 | minicpmv26 | moondream
+    gpu_layers: int = 0  # CPU by default: the GPU is busy with the main LLM
+    context_tokens: int = 4096
+
+
 class Config(BaseModel):
     name: str = "AETHER"
     user_name: str = "Aryan"
@@ -90,6 +112,8 @@ class Config(BaseModel):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+    voice: VoiceConfig = Field(default_factory=VoiceConfig)
+    vision: VisionConfig = Field(default_factory=VisionConfig)
     max_plan_steps: int = 8
 
     @property
