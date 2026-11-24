@@ -35,4 +35,9 @@ def build(config_path: str | None = None, confirm: Callable[[str], bool] = lambd
             except FileNotFoundError:
                 log.warning("Authorized folder %s does not exist yet.", folder)
         w.watch(cfg.security.allowed_read_roots, cfg.memory.watch_interval_s)
+    try:
+        from .personalization.observations import analyse
+        analyse(aether.db, aether.observations)
+    except Exception as e:
+        log.warning("observation analysis skipped: %s", e)
     return aether, problem

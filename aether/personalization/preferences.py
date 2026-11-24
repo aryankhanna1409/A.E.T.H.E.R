@@ -114,7 +114,15 @@ class PreferenceModel:
             db.execute("""CREATE TABLE IF NOT EXISTS preferences (
                 key TEXT PRIMARY KEY, instruction TEXT, confidence REAL, source TEXT,
                 evidence TEXT, active INTEGER, custom_phrase TEXT, updated REAL)""")
+            db.execute("CREATE TABLE IF NOT EXISTS preference_events (key TEXT, change TEXT, t REAL)")
             db.commit()
+
+    def _event(self, key: str, change: str) -> None:
+        self.db.execute("INSERT INTO preference_events VALUES (?,?,?)", (key, change, time.time()))
+
+    def timeline(self, limit: int = 100) -> list[dict]:
+        rows = self.db.execute("SELECT key, change, t FROM preference_events ORDER BY t DESC LIMIT ?", (limit,)).fetchall()
+        return [{"key": r[0], "change": r[1], "t": r[2]} for r in rows]
 
     # ---------------------------------------------------------------- learning
     def learn(self, text: str) -> list[str]:
@@ -164,12 +172,14 @@ class PreferenceModel:
     def set_active(self, key: str, active: bool) -> None:
         with self.lock:
             self.db.execute("UPDATE preferences SET active=?, updated=? WHERE key=?", (int(active), time.time(), key))
+            self._event(key, "enabled" if active else "disabled")
             self.db.commit()
 
     def edit(self, key: str, instruction: str) -> None:
         with self.lock:
             self.db.execute("UPDATE preferences SET instruction=?, source='user_edited', confidence=1.0, active=1 "
                             "WHERE key=?", (instruction, key))
+            self._event(key, "edited")
             self.db.commit()
 
     def add_custom(self, instruction: str) -> str:
@@ -180,6 +190,7 @@ class PreferenceModel:
     def delete(self, key: str) -> None:
         with self.lock:
             self.db.execute("DELETE FROM preferences WHERE key=?", (key,))
+            self._event(key, "deleted")
             self.db.commit()
 
     # ---------------------------------------------------------------- applying
@@ -206,6 +217,7 @@ class PreferenceModel:
             self.db.execute("INSERT OR REPLACE INTO preferences VALUES (?,?,?,?,?,?,?,?)",
                             (p.key, p.instruction, p.confidence, p.source, json.dumps(p.evidence),
                              int(p.active), p.custom_phrase, time.time()))
+            self._event(p.key, f"{'active' if p.active else 'candidate'} ({p.source}, conf {p.confidence:.2f})")
             self.db.commit()
 
     @staticmethod

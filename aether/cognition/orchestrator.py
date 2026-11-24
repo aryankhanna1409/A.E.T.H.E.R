@@ -31,6 +31,7 @@ from ..neurosymbolic.policy import PolicyEngine
 from ..neurosymbolic.rules import RuleEngine
 from ..neurosymbolic.verifier import check_answer, validate_ir
 from ..optimization.engine import optimize_schedule
+from ..personalization.observations import Observations
 from ..personalization.preferences import PreferenceModel
 from ..research import pipeline as research
 from ..retrieval import citations
@@ -83,6 +84,7 @@ class Aether:
         self.kg = KnowledgeGraph(self.db, self.lock)
         self.rules = RuleEngine(self.kg)
         self.prefs = PreferenceModel(self.db, self.lock)
+        self.observations = Observations(self.db, self.lock)
         self.audit = AuditLog(cfg.audit_path)
         self.policy = PolicyEngine(cfg.security)
         self.tools = ToolRegistry(self.policy, self.audit, confirm)
@@ -309,6 +311,9 @@ class Aether:
         pb = self.prefs.prompt_block()
         if pb:
             parts.append(pb)
+        ob = self.observations.prompt_block()
+        if ob:
+            parts.append(ob)
         addendum, mode = companion.companion_instructions(signal, text, self.wm.wellness_mode)
         if mode and mode != "crisis":
             self.wm.wellness_mode = mode

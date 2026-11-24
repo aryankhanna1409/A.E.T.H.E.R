@@ -38,7 +38,8 @@
   textarea:focus { outline: none; border-color: var(--accent); }
   aside { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
   nav { display: flex; border-bottom: 1px solid var(--line); }
-  nav button { flex: 1; border: 0; border-radius: 0; padding: 12px 4px; color: var(--muted); font-size: 12px; }
+  nav { flex-wrap: wrap; }
+  nav button { flex: 1 0 25%; border: 0; border-radius: 0; padding: 10px 4px; color: var(--muted); font-size: 12px; }
   nav button.active { color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
   #panel { flex: 1; overflow-y: auto; padding: 14px; font-size: 13px; }
   .row { border-bottom: 1px solid var(--line); padding: 8px 0; display: flex; gap: 8px; align-items: flex-start; }
@@ -66,7 +67,8 @@
 <aside>
   <nav>
     <button data-tab="mind" class="active">Mind</button><button data-tab="prefs">Preferences</button>
-    <button data-tab="memory">Memory</button><button data-tab="facts">Facts</button><button data-tab="activity">Activity</button>
+    <button data-tab="memory">Memory</button><button data-tab="facts">Facts</button>
+    <button data-tab="goals">Goals</button><button data-tab="patterns">Patterns</button><button data-tab="activity">Activity</button>
   </nav>
   <div id="panel"></div>
 </aside>
@@ -139,9 +141,29 @@ async function render() {
     const fs = await api("/api/facts");
     p.innerHTML = fs.map(f => `<div class="row"><div class="grow">${esc(f.s)} <span class="tag">${esc(f.p)}</span> ${esc(f.o)}<div class="tag">${f.source} · ${f.confidence.toFixed(2)}</div></div><button data-f="${f.id}">Retract</button></div>`).join("") || '<p class="tag">The knowledge graph is empty.</p>';
     p.querySelectorAll("button[data-f]").forEach(b => b.onclick = async () => { await api("/api/facts/" + b.dataset.f, {method: "DELETE"}); render(); });
+  } else if (tab === "goals") {
+    const g = await api("/api/goals"), rem = await api("/api/reminders");
+    p.innerHTML = `<div class="row"><input id="ng" class="grow" placeholder="Give AETHER a multi-step goal..." style="background:var(--bg);color:var(--text);border:1px solid var(--line);padding:6px"><button id="addg">Start</button></div>`
+      + "<h4>Goals</h4>" + (g.goals.map(x => `<div class="row"><div class="grow">${esc(x.text)}<div class="tag">#${x.id} · ${x.status}</div></div><button data-g="${x.id}">Details</button>${x.status === "running" ? `<button data-c="${x.id}">Cancel</button>` : ""}</div>`).join("") || '<div class="tag">none</div>')
+      + "<h4>Progress</h4>" + (g.progress.slice(-8).map(m => `<div class="tag">${esc(m)}</div>`).join("") || '<div class="tag">idle</div>')
+      + "<h4>Reminders</h4>" + (rem.map(r => `<div class="row"><div class="grow">${esc(r.text)}<div class="tag">due ${r.due}</div></div><button data-r="${r.id}">Done</button></div>`).join("") || '<div class="tag">none</div>');
+    $("#addg").onclick = async () => { await api("/api/goals", {method: "POST", body: JSON.stringify({text: $("#ng").value})}); render(); };
+    p.querySelectorAll("button[data-g]").forEach(b => b.onclick = async () => {
+      const d = await api("/api/goals/" + b.dataset.g); add("msg ai", d.report || d.tasks.map(t => `[${t.status}] (${t.agent}) ${t.description}`).join("\n")); });
+    p.querySelectorAll("button[data-c]").forEach(b => b.onclick = async () => { await api(`/api/goals/${b.dataset.c}/cancel`, {method: "POST"}); render(); });
+    p.querySelectorAll("button[data-r]").forEach(b => b.onclick = async () => { await api(`/api/reminders/${b.dataset.r}?status=done`, {method: "POST"}); render(); });
+  } else if (tab === "patterns") {
+    const os = await api("/api/observations");
+    p.innerHTML = '<p class="tag">Patterns AETHER noticed. They are only used after you confirm them, and they are never diagnoses.</p>' +
+      (os.map(o => `<div class="row"><div class="grow">${esc(o.text)}<div class="tag">${o.status} · conf ${o.confidence.toFixed(2)} · ${esc(o.evidence.slice(-1)[0] || "")}</div></div>
+        ${o.status !== "confirmed" ? `<button data-o="${o.id}" data-s="confirmed">Confirm</button>` : ""}${o.status !== "rejected" ? `<button data-o="${o.id}" data-s="rejected">Reject</button>` : ""}<button data-o="${o.id}" data-s="delete">Delete</button></div>`).join("") || '<p class="tag">Nothing noticed yet.</p>');
+    p.querySelectorAll("button[data-o]").forEach(b => b.onclick = async () => { await api(`/api/observations/${b.dataset.o}?status=${b.dataset.s}`, {method: "POST"}); render(); });
   } else {
-    const a = await api("/api/audit");
-    p.innerHTML = a.map(e => `<div class="row"><div class="grow"><span class="${e.allowed ? "ok" : "no"}">${e.allowed ? "allowed" : "blocked"}</span> ${esc(e.action)}<div class="tag">${esc(e.target)} · ${esc(e.reason)} · ${new Date(e.t*1000).toLocaleTimeString()}</div></div></div>`).join("") || '<p class="tag">Nothing accessed yet.</p>';
+    const a = await api("/api/audit"), j = await api("/api/journal");
+    p.innerHTML = '<div class="row"><div class="grow"><h4 style="margin:0">File changes</h4></div><button id="undo">Undo last</button></div>' +
+      (j.slice(0, 8).map(e => `<div class="tag">${esc(e.op)} ${esc(e.src)} ${e.undone ? "(undone)" : ""}</div>`).join("") || '<div class="tag">none</div>') + "<h4>Access log</h4><div id='acc'></div>";
+    $("#undo").onclick = async () => { const r = await api("/api/undo", {method: "POST"}); add("notice", "· " + r.message); render(); };
+    $("#acc").innerHTML = a.map(e => `<div class="row"><div class="grow"><span class="${e.allowed ? "ok" : "no"}">${e.allowed ? "allowed" : "blocked"}</span> ${esc(e.action)}<div class="tag">${esc(e.target)} · ${esc(e.reason)} · ${new Date(e.t*1000).toLocaleTimeString()}</div></div></div>`).join("") || '<p class="tag">Nothing accessed yet.</p>';
   }
 }
 async function pollPending() {

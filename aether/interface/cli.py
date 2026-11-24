@@ -18,6 +18,13 @@ HELP = """Commands:
   /index FOLDER          index an authorized folder for RAG
   /state                 show the last cognitive state  /audit   recent activity log
   /optimize TASKS        e.g. /optimize essay:3:5:Wed; gym:1:3:Sun; slides:2:4:Fri
+  /ask PATTERN           logic query, e.g. /ask parent_of(?p, riya)
+  /plan TASKS            exact planner, e.g. /plan essay:3:2; slides:2:4:essay
+  /research QUESTION     cited research brief (web + your documents)
+  /goal OBJECTIVE        run a multi-step goal with agents   /goals   list goals
+  /reminders             open reminders       /observations   patterns AETHER noticed (confirm/reject)
+  /confirm ID | /reject ID   confirm or reject an observation
+  /undo                  undo the last file change           /journal   recent file changes
   emergency stop         block all actions immediately  resume   re-enable
   /quit"""
 
@@ -111,6 +118,32 @@ def command(a, text: str, last_state) -> str:
                          for e in a.audit.tail(20)) or "Empty."
     if cmd == "/optimize":
         return a.tools.call("optimize_schedule", {"tasks": text[len("/optimize"):].strip()}).output
+    if cmd == "/ask":
+        return "\n".join(str(b) for b in a.rules.ask(text[4:].strip())) or "No matches."
+    if cmd == "/plan":
+        return a.tools.call("solve_plan", {"tasks": text[5:].strip()}).output
+    if cmd == "/research":
+        return a.tools.call("research", {"question": text[9:].strip()}).output
+    if cmd == "/goal":
+        if not a.executive:
+            return "Goals need a loaded model."
+        g = a.executive.run(text[5:].strip())
+        return f"[{g['status']}]\n{g['report']}"
+    if cmd == "/goals":
+        return "\n".join(f"#{g['id']} [{g['status']}] {g['text']}" for g in a.graph.goals()) or "No goals yet."
+    if cmd == "/reminders":
+        return "\n".join(f"#{r.id} {r.due}: {r.text}" for r in a.reminders.open()) or "No open reminders."
+    if cmd == "/observations":
+        return "\n".join(f"#{o.id} [{o.status}] {o.text} (conf {o.confidence:.2f}; {'; '.join(o.evidence[-2:])})"
+                         for o in a.observations.all()) or "No observations yet."
+    if cmd in {"/confirm", "/reject"}:
+        a.observations.set_status(int(parts[1]), "confirmed" if cmd == "/confirm" else "rejected")
+        return "Done."
+    if cmd == "/undo":
+        return a.journal.undo_last()
+    if cmd == "/journal":
+        return "\n".join(f"#{j['id']} {j['op']} {j['src']} {'(undone)' if j['undone'] else ''}"
+                         for j in a.journal.recent()) or "No file changes yet."
     return "Unknown command. /help lists them."
 
 

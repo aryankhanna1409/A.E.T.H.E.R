@@ -1,0 +1,10 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>AETHER</title>
+<style>body{margin:0;height:100vh;display:grid;place-items:center;background:#070b10;color:#3fd0e8;
+font:600 14px "Segoe UI",sans-serif;letter-spacing:.3em}.o{width:16px;height:16px;border-radius:50%;
+background:#3fd0e8;box-shadow:0 0 14px #3fd0e8;margin:0 auto 18px;animation:p 1.2s infinite}@keyframes p{50%{opacity:.3}}</style></head>
+<body><div><div class="o"></div>AETHER IS STARTING</div>
+<script>
+async function wait(){try{await fetch("http://127.0.0.1:8765/api/status");location.replace("http://127.0.0.1:8765/");}
+catch(e){setTimeout(wait,700);}}wait();
+</script></body></html>

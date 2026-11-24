@@ -143,6 +143,107 @@ def create_app(config_path: str | None = None) -> FastAPI:
     def audit():
         return list(reversed(aether.audit.tail(100)))
 
+    # ---------------------------------------------------------------- Phase 2-7 APIs
+    class Text(BaseModel):
+        text: str
+
+    @app.get("/api/reminders")
+    def reminders():
+        return [r.__dict__ for r in aether.reminders.open()]
+
+    @app.post("/api/reminders/{rid}")
+    def reminder_status(rid: int, status: str = "done"):
+        aether.reminders.set_status(rid, status)
+        return {"ok": True}
+
+    @app.get("/api/observations")
+    def observations():
+        return [o.__dict__ for o in aether.observations.all()]
+
+    @app.post("/api/observations/analyse")
+    def analyse_obs():
+        from ..personalization.observations import analyse
+        return {"proposed": analyse(aether.db, aether.observations)}
+
+    @app.post("/api/observations/{oid}")
+    def observation_status(oid: int, status: str):
+        if status == "delete":
+            aether.observations.delete(oid)
+        else:
+            aether.observations.set_status(oid, status)
+        return {"ok": True}
+
+    @app.get("/api/preferences/timeline")
+    def pref_timeline():
+        return aether.prefs.timeline()
+
+    @app.get("/api/goals")
+    def goals():
+        return {"goals": aether.graph.goals(), "progress": aether.progress_log[-30:]}
+
+    @app.get("/api/goals/{gid}")
+    def goal(gid: int):
+        return {**aether.graph.goal(gid), "tasks": [t.__dict__ for t in aether.graph.tasks(gid)]}
+
+    @app.post("/api/goals")
+    def submit_goal(body: Text):
+        if not aether.goals:
+            raise HTTPException(503, "No model loaded.")
+        return {"message": aether.goals.submit(body.text)}
+
+    @app.post("/api/goals/{gid}/cancel")
+    def cancel_goal(gid: int):
+        if aether.executive:
+            aether.executive.cancel(gid)
+        return {"ok": True}
+
+    @app.get("/api/rules")
+    def rules():
+        return {"all": [r.text for r in aether.rules.rules], "yours": aether.rules.user_rules()}
+
+    @app.post("/api/rules")
+    def add_rule(body: Text):
+        try:
+            aether.rules.add_rule(body.text)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        new, viol = aether.rules.run()
+        return {"derived": len(new), "violations": [v.constraint for v in viol]}
+
+    @app.delete("/api/rules")
+    def remove_rule(body: Text):
+        aether.rules.remove_rule(body.text)
+        return {"ok": True}
+
+    @app.post("/api/ask")
+    def ask(body: Text):
+        try:
+            return {"bindings": aether.rules.ask(body.text)}
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    @app.get("/api/why")
+    def why(s: str, p: str, o: str):
+        aether.rules.run(persist=False)
+        return {"proof": aether.rules.explain((s.lower(), p.lower(), o.lower()))}
+
+    @app.get("/api/journal")
+    def journal():
+        return aether.journal.recent()
+
+    @app.post("/api/undo")
+    def undo():
+        return {"message": aether.journal.undo_last()}
+
+    @app.post("/api/index")
+    def index(body: Text, facts: bool = False):
+        return {"message": aether.index_folder(body.text, extract_facts=facts)}
+
+    @app.post("/api/research")
+    def research(body: Text):  # sync: worker thread
+        r = aether.tools.call("research", {"question": body.text})
+        return {"ok": r.ok, "text": r.output}
+
     @app.post("/api/stop")
     def stop(engaged: bool = True):
         aether.policy.emergency_stop = engaged
