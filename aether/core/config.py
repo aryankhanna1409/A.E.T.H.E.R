@@ -75,6 +75,9 @@ class ProactiveConfig(BaseModel):
     event_alert_minutes: int = 15  # "Lecture in 15 minutes, Room 4" (0 = off)
     evening_review: str = "20:00"  # what's still open today + tomorrow's first event ("" = off)
     low_battery: int = 20  # warn when on battery and at or below this percent (0 = off)
+    focus_break_minutes: int = 90  # suggest a break after this long at the keyboard without one (0 = off)
+    deadline_nudges: bool = True  # deadlines from the calendar, reminders and indexed documents, nudged early
+    deadline_lead_days: list[int] = Field(default_factory=lambda: [7, 3, 1])
 
 
 class OnlineConfig(BaseModel):

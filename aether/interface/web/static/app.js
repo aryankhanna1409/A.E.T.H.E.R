@@ -462,6 +462,8 @@ RENDER.today = async (p) => {
       <div class="card"><h3><span class="grow">Briefing</span><button class="ghost" id="hear">☀ Hear it</button></h3><div class="md" id="brief-text">${markdown(b.text)}</div></div>
       <div class="card"><h3><span class="grow">Reminders</span></h3><div id="rem"></div>
         <div class="row" style="margin-top:12px"><input class="field" id="rem-text" placeholder="Remind me to…" style="flex:2"><input class="field" id="rem-when" placeholder="when (friday, 2026-12-01)" style="flex:1"><button class="ghost" id="rem-add">Add</button></div></div>
+      <div class="card" id="deadlines"></div>
+      <div class="card" id="focus"></div>
       <div class="card"><h3>Goals</h3>${b.goals.map(g => `<div class="item"><div class="grow">${esc(g.text)}<div class="meta">#${g.id}</div></div><span class="chip ${g.status === "done" ? "good" : g.status === "failed" ? "bad" : "accent"}">${g.status}</span></div>`).join("") || `<div class="empty">No goals yet. Ask AETHER to work on something in the background.</div>`}</div>
       <div class="card"><h3>Self-improvement</h3>${waiting.map(x => `<div class="item"><div class="grow">${esc(x.title)}<div class="meta">${esc(x.rationale)}</div></div></div>`).join("") || `<div class="empty">Nothing waiting for your approval.</div>`}
         ${waiting.length ? `<button class="ghost" onclick="location.hash='self'">Review in Self</button>` : ""}</div>
@@ -469,6 +471,7 @@ RENDER.today = async (p) => {
       <div class="card span2" id="routines"></div>
     </div>`;
   Routines.render($("#routines", p));
+  Awareness.render($("#deadlines", p), $("#focus", p));
   Schedule.render($("#sched", p));
   Inbox.render($("#inbox", p));
   $("#hear", p).onclick = () => { HUD.open(); HUD.ask("brief me"); };
@@ -482,6 +485,23 @@ RENDER.today = async (p) => {
     go("today");
   };
   $("#plan", p).onclick = () => { go("chat"); Chat.t.value = "Give me a quick plan for today based on my reminders and goals."; Chat.send(); };
+};
+
+// Awareness: deadlines spotted early, and how long the current stretch of focus has been.
+const Awareness = {
+  async render(dl, fo) {
+    let a; try { a = await api("/api/awareness"); } catch { return; }
+    const when = d => d.days === 0 ? "today" : d.days === 1 ? "tomorrow" : `in ${d.days} days`;
+    dl.innerHTML = `<h3><span class="grow">Deadlines ahead</span>${a.deadline_nudges ? "" : `<span class="chip">nudges off</span>`}</h3>` +
+      (a.deadlines.map(d => `<div class="item"><div class="grow">${esc(d.title)}<div class="meta">${new Date(d.due + "T00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })} · ${d.source === "calendar" || d.source === "reminder" ? d.source : esc(d.source.split(/[\\/]/).pop())}</div></div><span class="chip ${d.days <= 1 ? "bad" : d.days <= 3 ? "accent" : ""}">${when(d)}</span></div>`).join("")
+        || `<div class="empty">Nothing due in the next two weeks. I look at your calendar, reminders and indexed documents ("report due 4 December").</div>`);
+    const f = a.focus;
+    fo.innerHTML = `<h3>Focus</h3>` + (!f.supported ? `<div class="empty">Focus tracking works on Windows, where I can see how long since you last typed. Nothing is recorded.</div>`
+      : f.break_every <= 0 ? `<div class="empty">Break reminders are off. Turn them on in Settings.</div>`
+      : `<div class="focus-now"><b>${f.minutes >= 60 ? `${Math.floor(f.minutes / 60)} h ${String(f.minutes % 60).padStart(2, "0")} min` : `${f.minutes} min`}</b><span>${f.minutes ? `at it${f.app ? " · mostly " + esc(f.app) : ""}` : "fresh start"}</span></div>
+         <div class="bar"><i style="width:${Math.min(100, (f.minutes / f.break_every) * 100)}%"></i></div>
+         <div class="meta">I'll suggest a break at ${f.break_every} min. Only the time since you last typed and the app's name are used.</div>`);
+  },
 };
 
 // Schedule: the local calendar (.ics files / Outlook on this PC) as a day strip with free time and a now line.
@@ -889,10 +909,15 @@ RENDER.settings = async (p) => {
         <div class="kv"><span>App control</span><span>${c.security.ui_automation ? "on (asks)" : "off"}</span></div>
         <div style="margin-top:8px" class="muted">Reads: ${c.security.allowed_read_roots.map(esc).join(", ") || "none"}<br>Writes: ${c.security.allowed_write_roots.map(esc).join(", ") || "none (read-only)"}</div></div>
       <div class="card"><h3>Proactive</h3><div class="kv"><span>Enabled</span><span>${c.proactive.enabled ? "yes" : "no"}</span></div><div class="kv"><span>Quiet hours</span><span>${c.proactive.quiet_start} to ${c.proactive.quiet_end}</span></div>
-        <div class="kv"><span>Morning brief</span><span>${c.proactive.morning_brief || "off"}</span></div><div class="kv"><span>Max per hour</span><span>${c.proactive.max_per_hour}</span></div></div>
+        <div class="kv"><span>Morning brief</span><span>${c.proactive.morning_brief || "off"}</span></div><div class="kv"><span>Max per hour</span><span>${c.proactive.max_per_hour}</span></div>
+        ${tog("s-focus", c.proactive.focus_break_minutes > 0, "Break after long focus", `Suggests a break after ${c.proactive.focus_break_minutes || 90} min at the keyboard`)}
+        ${tog("s-deadlines", c.proactive.deadline_nudges, "Early deadline nudges", "Calendar, reminders and documents, 7, 3 and 1 days before")}</div>
       <div class="card"><h3>Tools (${c.tools.length})</h3>${c.tools.map(t => `<div class="item"><div class="grow"><span class="mono" style="font-size:12.5px">${esc(t.name)}</span><div class="meta">${esc(t.description)}</div></div><span class="chip">${esc(t.category)}</span></div>`).join("")}</div>
       <div class="card"><h3>Keyboard</h3>${[["Ctrl K", "Command palette"], ["Ctrl 1-8", "Switch views"], ["Ctrl N", "New chat"], ["Ctrl .", "Toggle thinking panel"], ["Ctrl Shift V", "Talk"], ["Ctrl Shift X", "Emergency stop"], ["/", "Focus the message box"]].map(([k, d]) => `<div class="kv"><span>${d}</span><span><kbd>${k}</kbd></span></div>`).join("")}</div>
     </div>`;
+  const aware = async (values, label) => { try { await api("/api/settings", { method: "POST", body: { section: "proactive", values, reason: "set in Settings" } }); toast("Saved", label); } catch (e) { toast("Couldn't save", e.message, "error"); } RENDER.settings(p); };
+  $("#s-focus", p).onclick = () => aware({ focus_break_minutes: c.proactive.focus_break_minutes > 0 ? 0 : 90 }, c.proactive.focus_break_minutes > 0 ? "Break reminders off" : "Break reminders on (90 min)");
+  $("#s-deadlines", p).onclick = () => aware({ deadline_nudges: !c.proactive.deadline_nudges }, c.proactive.deadline_nudges ? "Deadline nudges off" : "Deadline nudges on");
   $("#s-theme", p).onclick = e => { S.theme = S.theme === "light" ? "dark" : "light"; store.set("theme", S.theme); document.documentElement.dataset.theme = S.theme; e.target.classList.toggle("on"); };
   $("#s-speak", p).onclick = e => { S.autoSpeak = !S.autoSpeak; store.set("autoSpeak", S.autoSpeak); e.target.classList.toggle("on"); };
   $("#s-mind", p).onclick = e => { S.showMind = !S.showMind; store.set("showMind", S.showMind); e.target.classList.toggle("on"); if (Chat.root) Chat.applyLayout(); };

@@ -17,6 +17,7 @@ TUNABLE = {
     "memory": {"hybrid_alpha", "rag_min_score", "rag_top_k", "dedupe_threshold"},
     "context": {"topic_switch_threshold", "working_memory_turns"},
     "llm": {"temperature"},
+    "proactive": {"focus_break_minutes", "deadline_nudges"},  # the on/off switches in Settings
 }
 
 
