@@ -159,11 +159,16 @@ def looks_like_correction(heard: str, typed: str) -> bool:
     return difflib.SequenceMatcher(a=a, b=b).ratio() >= 0.6
 
 
-WAKE = re.compile(r"\b(?:hey|hi|hay|he|okay|ok|a|yo)?[\s,]*(?:nova|nova|nowa|nava|nowah|novah|no\s?va)\b", re.I)
+# The names AETHER answers to, as Whisper tends to spell them in Indian English. "either" is left out on purpose:
+# it starts too many ordinary sentences.
+NAMES = (r"nova|nowa|nava|nowah|novah|no\s?va"
+         r"|jarvis|jarvish|jarvees|jarviss|jervis|javis|jarwis|charvis"
+         r"|aether|ether|aethar|ethar|ayther|eather|eether|ather")
+WAKE = re.compile(rf"\b(?:hey|hi|hay|he|okay|ok|a|yo)?[\s,]*(?:{NAMES})\b", re.I)
 
 
 def is_wake_phrase(text: str, profile: SpeechProfile | None = None) -> bool:
-    """True for a short utterance that calls the assistant by name ("hey Nova", "Nova")."""
+    """True for a short utterance that calls the assistant by name: "hey Nova", "Jarvis", "AETHER"."""
     if profile is not None:
         text = profile.apply(text)
     t = text.strip().lower()

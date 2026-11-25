@@ -4,7 +4,9 @@ with barge-in (talk over AETHER to interrupt it).
 States: idle (waiting for the wake word) -> listening -> thinking -> speaking.
 After a reply it keeps listening for 8 seconds for a follow-up, so a
 conversation does not need the wake word every turn.
-Run:  python -m aether.speech.voice_loop
+Run:  python -m aether.speech.voice_loop            (loads its own copy of AETHER)
+      python -m aether.speech.voice_loop --server   (uses the running server's model: what the tray starts)
+Wake it with "hey Jarvis", or just say "Nova", "Jarvis" or "AETHER" (a command can follow in the same breath).
 """
 from __future__ import annotations
 
@@ -20,6 +22,60 @@ from .vad import Segmenter, rms
 
 FRAME_MS = 30
 FOLLOW_UP_S = 8
+LOCK_PORT = 8769   # one microphone listener at a time
+
+
+class RemoteAether:
+    """AETHER's brain over the local server, so the voice process doesn't load a second copy of the model
+    (two 7B models don't fit in 4 GB of VRAM). Same handle() shape as Aether, for VoiceAssistant."""
+
+    def __init__(self, base: str = "http://127.0.0.1:8765", timeout: float = 600):
+        self.base, self.timeout = base.rstrip("/"), timeout
+
+    def handle(self, text: str, on_event=None, spoken: bool = True):
+        import json
+        import types
+        import urllib.request
+        req = urllib.request.Request(self.base + "/api/chat/stream", method="POST",
+                                     data=json.dumps({"text": text, "voice": spoken}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        reply, kind = "", None
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                for raw in r:
+                    line = raw.decode("utf-8", "replace").rstrip("\r\n")
+                    if line.startswith("event:"):
+                        kind = line[6:].strip()
+                    elif line.startswith("data:") and kind:
+                        data = json.loads(line[5:].strip() or "{}")
+                        if kind == "done":
+                            reply = data.get("text", "")
+                        elif kind == "error":
+                            reply = "Sorry, something went wrong: " + data.get("message", "")[:200]
+                        elif on_event:
+                            on_event(kind, data)
+        except Exception as e:
+            log.warning("AETHER server didn't answer: %s", e)
+            reply = "I can't reach the AETHER server right now."
+        return types.SimpleNamespace(text=reply)
+
+    def alive(self) -> bool:
+        import urllib.request
+        try:
+            urllib.request.urlopen(self.base + "/api/status", timeout=2).close()
+            return True
+        except Exception:
+            return False
+
+    def hotwords(self) -> list[str]:
+        """Names and terms from your memories, as the server knows them."""
+        import json
+        import urllib.request
+        try:
+            with urllib.request.urlopen(self.base + "/api/speech/profile", timeout=5) as r:
+                return list(json.loads(r.read()).get("hotwords", []))
+        except Exception:
+            return []
 
 
 class WakeWord:
@@ -220,7 +276,7 @@ class VoiceAssistant:
         if proactive is not None and self.ring not in proactive.listeners:
             proactive.listeners.append(self.ring)
         block = int(self.cfg.sample_rate * FRAME_MS / 1000)
-        print("Voice ready. Say the wake word to start (Ctrl+C to quit).")
+        print('Voice ready. Say "hey Jarvis", or just "Nova", "Jarvis" or "AETHER" (Ctrl+C to quit).')
         with sd.InputStream(samplerate=self.cfg.sample_rate, channels=1, dtype="float32", blocksize=block,
                             callback=self._on_audio):
             while self.running:
@@ -230,17 +286,53 @@ class VoiceAssistant:
                     continue
 
 
-def main() -> None:
-    from ..app import build
-    from ..core.logging import setup_logging
-    from ..interface.cli import ask
+def single_instance():
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", LOCK_PORT))
+        return s
+    except OSError:
+        s.close()
+        return None
+
+
+def main(argv: list[str] | None = None) -> int:  # pragma: no cover - needs a microphone
+    import argparse
+    ap = argparse.ArgumentParser(prog="aether-voice", description="Always-listening voice for AETHER.")
+    ap.add_argument("--server", action="store_true", help="use the running AETHER server instead of loading the model")
+    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--config", default=None)
+    args = ap.parse_args(argv)
+    from ..core.logging import ensure_streams, setup_logging
+    ensure_streams("voice")
     setup_logging("INFO")
-    aether, problem = build(confirm=ask)
-    if problem:
-        raise SystemExit(problem)
-    va = VoiceAssistant(aether, aether.cfg.voice)
-    va.on_state = report_presence
-    va.run()
+    lock = single_instance()
+    if lock is None:
+        print("AETHER is already listening (another aether-voice is running).")
+        return 0
+    if args.server:
+        from ..core.config import load_config
+        cfg = load_config(args.config)
+        brain = RemoteAether(f"http://127.0.0.1:{args.port}")
+        while not brain.alive():          # started with the tray: wait for the model to load
+            time.sleep(2)
+        profile = SpeechProfile.for_home(cfg.home, cfg.user_name, brain.hotwords())
+        va = VoiceAssistant(brain, cfg.voice, profile=profile)
+    else:
+        from ..app import build
+        from ..interface.cli import ask
+        aether, problem = build(args.config, confirm=ask)
+        if problem:
+            raise SystemExit(problem)
+        va = VoiceAssistant(aether, aether.cfg.voice)
+    va.on_state = lambda state: report_presence(state, args.port)
+    va.state = "idle"
+    try:
+        va.run()
+    finally:
+        lock.close()
+    return 0
 
 
 def report_presence(state: str, port: int = 8765) -> None:
@@ -260,4 +352,4 @@ def report_presence(state: str, port: int = 8765) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

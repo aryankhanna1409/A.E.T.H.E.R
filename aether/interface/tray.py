@@ -121,6 +121,7 @@ class Tray:
         self.paused = False
         self.server: subprocess.Popen | None = None
         self.nova: subprocess.Popen | None = None
+        self.voice: subprocess.Popen | None = None
         self.icon = None
         self.server_log = log_dir() / "server.log"
         self._stop = threading.Event()
@@ -245,6 +246,36 @@ class Tray:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             self.nova = subprocess.Popen(self.nova_command(), creationflags=flags)
 
+    # ---- always listening ("hey Jarvis", "Nova", "AETHER")
+    def voice_command(self) -> list[str]:
+        cmd = self.nova_command()[:1] + ["-m", "aether.speech.voice_loop", "--server", "--port", str(self.port)]
+        return cmd + (["--config", self.config] if self.config else [])
+
+    def listening(self) -> bool:
+        return self.voice is not None and self.voice.poll() is None
+
+    @staticmethod
+    def listening_wanted() -> bool:
+        from .nova import load_settings
+        return load_settings().get("listening", True) is not False
+
+    def start_voice(self) -> None:
+        if not self.listening():
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            self.voice = subprocess.Popen(self.voice_command(), cwd=str(ROOT), creationflags=flags)
+
+    def toggle_listening(self) -> None:
+        """Mute or unmute the microphone. Muted, nothing listens at all; the hotkey still opens the HUD."""
+        from .nova import save_settings
+        if self.listening():
+            self.voice.terminate()
+            save_settings({"listening": False})
+            self.notify("Microphone off", "AETHER isn't listening. Turn it back on from the tray menu.")
+        else:
+            save_settings({"listening": True})
+            self.start_voice()
+            self.notify("Listening", 'Say "Nova", "Jarvis" or "AETHER" any time.')
+
     def toggle_nova(self) -> None:
         from .nova import save_settings
         if self.nova_running():
@@ -258,6 +289,8 @@ class Tray:
         self._stop.set()
         if self.nova_running():
             self.nova.terminate()
+        if self.listening():
+            self.voice.terminate()
         if self.icon is not None:
             self.icon.stop()
         if self.server is not None:
@@ -299,6 +332,7 @@ class Tray:
             item(f"Talk ({self.hotkey})", lambda: self.open(hud=True)),
             item("Morning briefing", lambda: self.open(hud="brief")),
             item("Nova on screen", lambda: self.toggle_nova(), checked=lambda _: self.nova_running()),
+            item("Always listening (mic on)", lambda: self.toggle_listening(), checked=lambda _: self.listening()),
             menu.SEPARATOR,
             item("Pause notifications", toggle_pause, checked=lambda _: self.paused),
             item("Start with Windows", lambda: self.set_startup(not self.startup_enabled()),
@@ -318,6 +352,11 @@ class Tray:
                 tail = log_tail(self.server_log, 2)
                 self.notify("AETHER didn't start", f"Details in {self.server_log}" + (f"\n{tail}" if tail else ""))
                 return
+            if self.listening_wanted():
+                try:
+                    self.start_voice()
+                except Exception as e:  # voice packages missing: everything else still works
+                    log.warning("always-listening voice didn't start: %s", e)
             if open_app:
                 self.open()
             elif not quiet_start:
