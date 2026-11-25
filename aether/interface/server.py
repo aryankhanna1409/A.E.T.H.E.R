@@ -449,9 +449,18 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 "tools": [{"name": t.name, "category": t.category, "description": t.description}
                           for t in aether.tools.tools.values()]}
 
+    seen = {"visible": 0.0}
+
     @app.get("/api/pending")
-    def get_pending():
+    def get_pending(visible: bool = False):
+        if visible:              # the app (or its HUD) is on screen and will show the approval
+            seen["visible"] = time.time()
         return pending.list()
+
+    @app.get("/api/pending/watch")
+    def watch_pending():
+        """For the tray: approvals waiting, and whether an AETHER window is on screen to show them."""
+        return {"items": pending.list(), "window_visible": time.time() - seen["visible"] < 3}
 
     @app.post("/api/pending/{pid}")
     def answer(pid: str, allow: bool):
