@@ -21,13 +21,13 @@ git --version
 
 Put it in `C:\AETHER`, because the example settings already point there.
 
-**If PRs #4 to #8 are merged into `main` on GitHub** (open the repo's Pull requests tab; merge #4, #5, #6, #7 and #8 in that order, since each builds on the one before):
+**Once PR #8 is merged into `main` on GitHub** (it carries everything from phases 15 to 18):
 
 ```powershell
 git clone https://github.com/aryankhanna1409/A.E.T.H.E.R C:\AETHER
 ```
 
-**If you haven't merged them yet**, take the newest branch directly. It already contains everything:
+**If you haven't merged it yet**, take the newest branch directly. It already contains everything:
 
 ```powershell
 git clone -b jarvis-5 https://github.com/aryankhanna1409/A.E.T.H.E.R C:\AETHER
