@@ -17,11 +17,11 @@ No cloud APIs. No Ollama. The language model runs **in-process** through `llama-
 | Documents and research | Folder watcher keeps your notes indexed, optional reranker, cited research briefs that separate what you already knew from what is new, fake citations removed by code |
 | Agents | Multi-step goals as a persistent task graph: executive, research, reasoning, coding, operator, memory and verification agents; bounded retries; one re-plan; runs in the background |
 | Computer control | Open allowlisted apps, sandboxed shell, move and delete to a trash with undo, screen reading (OCR) and UI automation, all off or asking first by default |
+| Overnight learning | Corrections become lessons it applies next time; while the PC is idle and plugged in it distils them, tidies memory and prepares fine-tuning data; "what did you learn this week?" |
 | Personalization | Learns what you like and hate in replies ("stop the long intros" takes effect at once); notices patterns about you but only keeps them if you confirm; timeline of every change |
 | Wellness companion | Detects stress, chooses listening, planning, relaxation and other modes, asks "listen or solve?", and a crisis path whose helplines are guaranteed by code |
 | Metaheuristics | Genetic algorithm, simulated annealing, particle swarm, tabu search, differential evolution and NSGA-II (Pareto trade-offs); self-tunes its own retrieval on your eval cases |
 | Metacognition | Measures every turn, learns from 👍/👎 and "that's wrong", reviews its own finished goals, and proposes improvements that only apply when you approve |
-| Overnight learning | Corrections become lessons it applies next time; while the PC is idle and plugged in it distils them, tidies memory and prepares fine-tuning data; "what did you learn this week?" |
 | Proactive | Due reminders, a morning brief, finished goals and gentle check-ins, with quiet hours and a rate limit |
 | Security | Policy engine on every action, secrets denylist, prompt-injection tripwire with taint mode, encryption at rest (DPAPI-protected key), audit log, emergency stop |
 
