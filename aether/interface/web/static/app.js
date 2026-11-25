@@ -407,8 +407,8 @@ const Chat = {
   },
 };
 
-async function streamChat(text, on) {
-  const r = await fetch("/api/chat/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+async function streamChat(text, on, { voice = false } = {}) {
+  const r = await fetch("/api/chat/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice }) });
   if (!r.ok || !r.body) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
   const reader = r.body.getReader(), dec = new TextDecoder();
   let buf = "";
@@ -448,7 +448,9 @@ RENDER.today = async (p) => {
       <div class="card"><h3>Goals</h3>${b.goals.map(g => `<div class="item"><div class="grow">${esc(g.text)}<div class="meta">#${g.id}</div></div><span class="chip ${g.status === "done" ? "good" : g.status === "failed" ? "bad" : "accent"}">${g.status}</span></div>`).join("") || `<div class="empty">No goals yet. Ask AETHER to work on something in the background.</div>`}</div>
       <div class="card"><h3>Self-improvement</h3>${waiting.map(x => `<div class="item"><div class="grow">${esc(x.title)}<div class="meta">${esc(x.rationale)}</div></div></div>`).join("") || `<div class="empty">Nothing waiting for your approval.</div>`}
         ${waiting.length ? `<button class="ghost" onclick="location.hash='self'">Review in Self</button>` : ""}</div>
+      <div class="card span2" id="routines"></div>
     </div>`;
+  Routines.render($("#routines", p));
   const rem = $("#rem", p);
   rem.innerHTML = b.reminders.map(r => `<div class="item"><div class="grow">${esc(r.text)}<div class="meta">due ${esc(r.due)}</div></div><div class="actions"><button class="ghost" data-r="${r.id}" data-s="done">Done</button><button class="icon-btn" data-r="${r.id}" data-s="dismissed" title="Dismiss">✕</button></div></div>`).join("") || `<div class="empty">Nothing due. Say "remind me to…" in chat or add one here.</div>`;
   $$("[data-r]", rem).forEach(x => x.onclick = async () => { await api(`/api/reminders/${x.dataset.r}?status=${x.dataset.s}`, { method: "POST" }); go("today"); });
@@ -458,6 +460,34 @@ RENDER.today = async (p) => {
     go("today");
   };
   $("#plan", p).onclick = () => { go("chat"); Chat.t.value = "Give me a quick plan for today based on my reminders and goals."; Chat.send(); };
+};
+
+// Routines: one-line voice macros ("focus mode"). Saying the name runs the steps; every step is still policy-checked.
+const Routines = {
+  async render(box) {
+    const { items, tools } = await api("/api/routines");
+    box.innerHTML = `<h3><span class="grow">Routines</span><span class="r-hint">Say the name in chat or by voice, e.g. “focus mode”</span></h3>
+      <div class="routines">${items.map(r => `<div class="routine"><div class="r-head"><b>${esc(r.name)}</b><span class="muted">${r.runs ? `ran ${r.runs}×` : "never run"}</span></div>
+        ${r.description ? `<div class="muted" style="font-size:12.5px">${esc(r.description)}</div>` : ""}<pre class="r-steps">${esc(r.steps)}</pre>
+        <div class="row"><button class="primary" data-run="${esc(r.name)}">Run</button><button class="ghost" data-edit="${esc(r.name)}">Edit</button><button class="icon-btn" data-del="${esc(r.name)}" title="Delete">${icon("trash")}</button></div></div>`).join("")
+        || `<div class="empty">No routines yet. Make one below: a name and one tool per line.</div>`}</div>
+      <details class="r-new" ${items.length ? "" : "open"}><summary>New routine</summary>
+        <div class="row" style="margin-top:10px"><input class="field" id="r-name" placeholder="name, e.g. focus mode" style="flex:1"><input class="field" id="r-desc" placeholder="what it's for (optional)" style="flex:2"></div>
+        <textarea class="field mono" id="r-steps" rows="4" style="width:100%;margin-top:8px;font-size:12.5px" placeholder="app_open name=spotify&#10;remind text=&quot;stand up and stretch&quot; when=&quot;in 50 minutes&quot;"></textarea>
+        <div class="row" style="margin-top:8px"><button class="primary" id="r-save">Save routine</button><span class="muted" style="font-size:12px">Tools: ${tools.filter(t => !["run_routine", "start_goal"].includes(t)).map(esc).join(", ")}</span></div></details>`;
+    $$("[data-run]", box).forEach(b => b.onclick = async () => {
+      b.disabled = true; b.textContent = "Running…";
+      try { const r = await api(`/api/routines/${encodeURIComponent(b.dataset.run)}/run`, { method: "POST" }); const ok = r.results.every(x => x.ok); toast(ok ? "Routine done" : "Routine stopped", r.text.replace(/\*\*/g, ""), ok ? "" : "error", 10000); }
+      catch (e) { toast("Couldn't run", e.message, "error"); }
+      this.render(box);
+    });
+    $$("[data-del]", box).forEach(b => b.onclick = async () => { await api(`/api/routines/${encodeURIComponent(b.dataset.del)}`, { method: "DELETE" }); this.render(box); });
+    $$("[data-edit]", box).forEach(b => b.onclick = () => { const r = items.find(x => x.name === b.dataset.edit); $("#r-name", box).value = r.name; $("#r-desc", box).value = r.description || ""; $("#r-steps", box).value = r.steps; $(".r-new", box).open = true; $("#r-steps", box).focus(); });
+    $("#r-save", box).onclick = async () => {
+      try { const r = await api("/api/routines", { method: "POST", body: { name: $("#r-name", box).value, description: $("#r-desc", box).value, steps: $("#r-steps", box).value } }); toast("Routine saved", `Say “${r.name}” to run it.`); this.render(box); }
+      catch (e) { toast("Not saved", e.message, "error", 10000); }
+    };
+  },
 };
 
 RENDER.memory = async (p, tab = store.get("memTab", "memories")) => {
@@ -669,6 +699,7 @@ const COMMANDS = [
   ["New chat", "Start a fresh conversation", "plus", () => { go("chat"); Chat.newChat(); }],
   ...Object.entries(VIEWS).map(([k, v]) => [`Go to ${v}`, "", { chat: "chat", today: "sun", memory: "brain", knowledge: "graph", goals: "target", lab: "flask", self: "pulse", activity: "shield", settings: "gear" }[k], () => go(k)]),
   ["HUD mode", "Full-screen voice interface (Ctrl+Shift+H)", "orb", () => HUD.open()],
+  ["What's on my screen?", "Look at the screen with the local vision model (asks first)", "scan", () => { go("chat"); Chat.t.value = "Look at my screen. What's on it, and is there anything I should know?"; Chat.send(); }],
   ["Inspect the last turn", "Glass-box trace: timeline, retrieval, proofs, verification", "scan", () => Inspector.open()],
   ["Toggle thinking panel", "Show or hide the live pipeline", "panel", () => { S.showMind = !S.showMind; store.set("showMind", S.showMind); Chat.root && Chat.applyLayout(); }],
   ["Talk", "Push to talk (click the mic again to stop)", "mic", () => { go("chat"); Chat.toggleMic?.(); }],

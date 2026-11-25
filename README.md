@@ -50,6 +50,18 @@ Most assistants are a black box. AETHER records everything it does and lets you 
 | --- | --- |
 | ![HUD listening](docs/screenshots/hud-listen.png) | ![HUD answer](docs/screenshots/hud-answer.png) |
 
+## Closer to Jarvis
+
+* **It talks while it thinks.** Voice replies start at the first finished sentence instead of after the whole answer, both in the always-listening voice loop and in the HUD. If the fact checker changes what was said, it stops and says the corrected version. Spoken replies are asked to be short and plain.
+* **Routines.** Name a set of steps once ("focus mode": open Spotify, set a stretch reminder) and saying the name runs them instantly, without the model. Every step still goes through the policy engine, asks when it should, and is audited. Make them on the Today page.
+* **Look at my screen.** "What does this error mean?" takes a screenshot, asks the local vision model, and deletes the image. Off until you enable screen access, and it asks every time.
+* **Persona.** `persona = "jarvis"` (the default) is understated and anticipates the next step; set `address_as = "sir"` if you want the full effect.
+* **Speed knobs.** `scripts\bench.py` now measures time to the first word, and `--compare-draft` tells you whether prompt-lookup speculative decoding speeds up your machine.
+
+| Routines | A routine run from chat |
+| --- | --- |
+| ![Routines on the Today page](docs/screenshots/routines.png) | ![Routine in chat](docs/screenshots/routine-chat.png) |
+
 ## The app
 
 ![Chat with the live thinking pipeline](docs/screenshots/chat.png)
@@ -102,7 +114,7 @@ Structured outputs are enforced with a JSON grammar, so even small models return
 ## Check it on your PC
 
 ```powershell
-.\.venv\Scripts\pytest                       # 122 unit tests, no model needed, about 15 s
+.\.venv\Scripts\pytest                       # 136 unit tests, no model needed, about 15 s
 .\.venv\Scripts\aether-eval                  # 10 end-to-end scenarios with YOUR model, 5-15 min
 .\.venv\Scripts\python scripts\bench.py      # speed against the performance budget
 ```
@@ -119,4 +131,4 @@ Structured outputs are enforced with a JSON grammar, so even small models return
 * Every access and change is in `audit.jsonl` and the Activity tab; file changes can be undone.
 * The wellness companion is supportive conversation, not therapy. Crisis messages always get helpline information (Tele MANAS 14416 in India, 988 in the US, Samaritans 116 123 in the UK).
 
-More in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/SECURITY.md](docs/SECURITY.md).
+More in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/SECURITY.md](docs/SECURITY.md) and the technical report ([PDF](docs/report/aether.pdf), [LaTeX source](docs/report/aether.tex)).

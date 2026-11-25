@@ -54,6 +54,13 @@ class Pending:
 
 class ChatIn(BaseModel):
     text: str
+    voice: bool = False  # the reply will be spoken: keep it short and plain
+
+
+class RoutineIn(BaseModel):
+    name: str
+    steps: str
+    description: str = ""
 
 
 class PrefEdit(BaseModel):
@@ -138,7 +145,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
         def work():
             try:
-                r = aether.handle(body.text, on_event=lambda kind, data: q.put((kind, data)))
+                r = aether.handle(body.text, on_event=lambda kind, data: q.put((kind, data)), spoken=body.voice)
                 last["state"] = r.state.model_dump()
                 q.put(("done", {"text": r.text, "notices": r.notices, "state": last["state"],
                                 "turn_id": r.turn_id, "session": aether.session}))
@@ -217,6 +224,32 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 nodes[n]["degree"] += 1
             links.append({"source": s_, "target": o_, "label": p_, "kind": kind, "id": tid})
         return {"nodes": list(nodes.values()), "links": links}
+
+    @app.get("/api/routines")
+    def routines():
+        return {"items": aether.routines.list(), "tools": aether.tools.names()}
+
+    @app.post("/api/routines")
+    def save_routine(body: RoutineIn):
+        try:
+            r = aether.routines.save(body.name, body.steps, set(aether.tools.names()), body.description)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return {"name": r.name, "steps": r.lines()}
+
+    @app.delete("/api/routines/{name}")
+    def delete_routine(name: str):
+        return {"deleted": aether.routines.delete(name)}
+
+    @app.post("/api/routines/{name}/run")
+    def run_routine(name: str):
+        r = aether.routines.get(name)
+        if not r:
+            raise HTTPException(404, "No such routine.")
+        from ..tools.routines import summary
+        results = aether.routines.run(r, aether.tools)
+        return {"text": summary(r, results), "results": [{"tool": x.tool, "ok": x.ok, "decision": x.decision,
+                                                           "output": x.output[:300]} for x in results]}
 
     @app.get("/api/kg/history")
     def kg_history(entity: str | None = None, limit: int = 400):
@@ -575,7 +608,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         Path(tmp.name).unlink(missing_ok=True)
         if not text:
             return {"transcript": "", "text": "", "notices": ["I didn't catch that."]}
-        r = aether.handle(text)
+        r = aether.handle(text, spoken=True)
         return {"transcript": text, "text": r.text, "notices": r.notices, "state": r.state.model_dump()}
 
     @app.post("/api/stop")

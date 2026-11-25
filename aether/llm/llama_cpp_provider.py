@@ -36,6 +36,12 @@ class LlamaCppProvider:
             kwargs["n_threads"] = cfg.threads
         if cfg.chat_format:
             kwargs["chat_format"] = cfg.chat_format
+        if getattr(cfg, "draft_lookup_tokens", 0) > 0:
+            try:
+                from llama_cpp.llama_speculative import LlamaPromptLookupDecoding
+                kwargs["draft_model"] = LlamaPromptLookupDecoding(num_pred_tokens=cfg.draft_lookup_tokens)
+            except ImportError:  # pragma: no cover - older llama-cpp-python
+                pass
         self.model = Llama(**kwargs)
         if getattr(cfg, "prompt_cache_mb", 0) > 0:
             # The persona, preferences and tool catalog are the same every turn; caching their KV state

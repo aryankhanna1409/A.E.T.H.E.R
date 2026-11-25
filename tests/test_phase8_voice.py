@@ -52,7 +52,7 @@ class Reply:
 
 class FakeAether:
     def __init__(self): self.heard = []
-    def handle(self, text): self.heard.append(text); return Reply()
+    def handle(self, text, on_event=None, spoken=False): self.heard.append(text); return Reply()
 
 
 def _assistant(monkeypatch):

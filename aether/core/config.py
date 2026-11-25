@@ -34,6 +34,10 @@ class LLMConfig(BaseModel):
     max_reply_tokens: int = 1024
     chat_format: str | None = None  # None = read template from the GGUF
     prompt_cache_mb: int = 768  # reuse the KV cache for the shared prompt prefix (RAM); 0 = off
+    # Speculative decoding by prompt lookup: guesses the next tokens from text already in the prompt
+    # (retrieved notes, quoted facts) and verifies them in one batch. No extra model or VRAM.
+    # Run `python scripts/bench.py --compare-draft` to see whether it helps on your machine; 0 = off.
+    draft_lookup_tokens: int = 0
 
 
 class EmbeddingConfig(BaseModel):
@@ -118,6 +122,8 @@ class VisionConfig(BaseModel):
 class Config(BaseModel):
     name: str = "AETHER"
     user_name: str = "Aryan"
+    persona: str = "jarvis"  # jarvis | neutral
+    address_as: str = ""  # e.g. "sir"; empty = use the name naturally
     home: Path = Field(default_factory=default_home)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     embeddings: EmbeddingConfig = Field(default_factory=EmbeddingConfig)

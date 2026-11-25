@@ -48,6 +48,7 @@ from ..retrieval.watcher import FolderWatcher
 from ..tools.computer import Journal, computer_tools
 from ..tools.filesystem import filesystem_tools
 from ..tools.registry import Tool, ToolRegistry, ToolResult
+from ..tools.routines import Routines, summary as routine_summary
 from ..tools.web import web_tools
 from ..wellness import companion
 from .context import TopicTracker, WorkingMemory
@@ -57,7 +58,7 @@ from .perception import perceive
 from .router import QueryRouter
 
 PERSONA = """You are {name}, {user}'s personal AI assistant running entirely on their own Windows PC.
-Personality: calm, intelligent, precise, warm, witty when it fits, never sycophantic.
+Personality: {personality}
 Today is {today}.
 Rules:
 - Answer the user's actual objective. Be direct.
@@ -66,6 +67,16 @@ Rules:
 - Say plainly when you are unsure or when information is missing.
 - Never claim you did something (saved, created, searched) unless a tool result in this conversation shows it.
 - Facts in <known_facts> were verified by the symbolic engine; prefer them over your own assumptions."""
+
+PERSONALITIES = {
+    "jarvis": "calm, precise and quietly capable, like a seasoned chief of staff with an engineer's mind. "
+              "Understated, dry wit when it fits; never gushing, never sycophantic. Lead with the answer, "
+              "anticipate the obvious next need and offer it in one line.",
+    "neutral": "calm, intelligent, precise, warm, witty when it fits, never sycophantic.",
+}
+SPOKEN = ("This reply will be SPOKEN aloud. Answer in one to three short, natural sentences. No lists, tables, "
+          "code, links, markdown or citations markers. If the full answer needs detail, give the gist and offer "
+          "to put the details on screen.")
 
 STOP_WORDS = re.compile(r"^\s*(aether,? )?(emergency stop|stop everything|abort all)\b", re.I)
 RESUME_WORDS = re.compile(r"^\s*(aether,? )?resume\b", re.I)
@@ -136,6 +147,16 @@ class Aether:
                                  {"path": "image file in an authorized folder", "question": "what to find out"},
                                  "fs.read", lambda path, question="Describe this image.": self.vision.describe(path, question),
                                  "path"))
+        self.tools.register(Tool("look_at_screen", "look at what is on the user's screen right now and answer a question "
+                                 "about it (needs screen access on; asks first)",
+                                 {"question": "what to find out, e.g. 'what does this error mean?'"}, "screen.observe",
+                                 lambda question="What is on my screen?": self.look_at_screen(question)))
+        self.routines = Routines(self.db, self.lock)
+        self.tools.register(Tool("run_routine", "run one of the user's saved routines (named macros of tool steps)",
+                                 {"name": "routine name, e.g. focus mode"}, "routine", self._run_routine_tool))
+        self.tools.register(Tool("list_routines", "list the user's saved routines", {}, "kg",
+                                 lambda: "\n".join(f"{r['name']}: {r['steps'].replace(chr(10), '; ')}" for r in self.routines.list())
+                                 or "No routines yet. Add them on the Today page."))
         self.reminders = Reminders(self.db, self.lock)
         self.tools.register(Tool("remind", "set a reminder for the user",
                                  {"text": "what", "when": "e.g. tomorrow, friday, 2026-12-01"}, "memory",
@@ -168,11 +189,40 @@ class Aether:
         self.traces = TraceStore(self.db, self.lock, self.store.cipher)
 
     # ------------------------------------------------------------------ main entry
+    def _run_routine_tool(self, name: str) -> str:
+        routine = self.routines.get(name)
+        if not routine:
+            names = ", ".join(r["name"] for r in self.routines.list()) or "none yet"
+            return f"No routine called '{name}'. Saved routines: {names}."
+        return routine_summary(routine, self.routines.run(routine, self.tools))
+
+    def look_at_screen(self, question: str = "What is on my screen?") -> str:
+        """Screenshot -> local vision model (or OCR when no vision model is set). The image is deleted after."""
+        if not self.cfg.security.screen_access:
+            return "Screen access is off. Turn on [security].screen_access in aether.toml (or Settings) to let me look."
+        try:
+            import mss
+            import mss.tools
+        except ImportError:
+            return "Looking at the screen needs: pip install -e .[computer]"
+        shots = self.cfg.home / "screens"
+        shots.mkdir(exist_ok=True)
+        path = shots / f"screen-{uuid.uuid4().hex[:8]}.png"
+        with mss.mss() as sct:
+            img = sct.grab(sct.monitors[1])
+            mss.tools.to_png(img.rgb, img.size, output=str(path))
+        try:
+            if self.vision.configured:
+                return "What I see on your screen:\n" + self.vision.describe(str(path), question)
+            return self.tools.tools["screen_read"].fn() + "\n(No vision model is set, so this is the screen's text only.)"
+        finally:
+            path.unlink(missing_ok=True)
+
     def what_if(self, spec: str):
         """Counterfactual over a snapshot of the knowledge graph; real memory is untouched."""
         return what_if(self.kg, [r.text for r in self.rules.rules], spec)
 
-    def handle(self, text: str, on_event: Callable[[str, dict], None] | None = None) -> Reply:
+    def handle(self, text: str, on_event: Callable[[str, dict], None] | None = None, spoken: bool = False) -> Reply:
         """One turn, measured. Metrics never change the answer; they feed the dashboard and proposals.
         `on_event(kind, data)` receives live progress: stage, token, replace (see interface/server.py)."""
         rec = TraceRecorder(text)
@@ -183,6 +233,7 @@ class Aether:
             forward(kind, data)
         self._emit = emit
         self._streaming = on_event is not None
+        self._spoken = spoken
         fb = self.meta.implicit_feedback(text)
         start = time.perf_counter()
         raw_llm = self.llm
@@ -226,6 +277,19 @@ class Aether:
         if RESUME_WORDS.search(text) and self.policy.emergency_stop:
             self.policy.emergency_stop = False
             return Reply("Actions re-enabled.", state)
+
+        # Routines are deterministic macros: run them without the model so they are instant.
+        routine = self.routines.match(text)
+        if routine:
+            emit_ = getattr(self, "_emit", lambda kind, data: None)
+            state.intent, state.current_goal, state.route = "routine", f"run routine '{routine.name}'", ["tools"]
+            state.confidence = 1.0  # an exact name match, not a guess
+            emit_("stage", {"name": "act", "label": f"Running {routine.name}"})
+            results = self.routines.run(routine, self.tools, on_step=lambda st, r: emit_(
+                "tool", {"tool": st["tool"], "ok": r.ok, "decision": r.decision, "preview": r.output[:240]}))
+            emit_("stage", {"name": "act", "done": True})
+            state.tool_log += [f"{r.tool} -> {r.decision}, ok={r.ok}" for r in results]
+            return Reply(routine_summary(routine, results), state)
 
         emit = getattr(self, "_emit", lambda kind, data: None)
         # PERCEIVE
@@ -438,7 +502,12 @@ class Aether:
 
     def _compose(self, ir, plan, tool_results, state, signal, text) -> tuple[str, str]:
         today = datetime.now().strftime("%A %d %B %Y")
-        parts = [PERSONA.format(name=self.cfg.name, user=self.cfg.user_name, today=today)]
+        personality = PERSONALITIES.get(self.cfg.persona, PERSONALITIES["neutral"])
+        if self.cfg.address_as:
+            personality += f" Address the user as '{self.cfg.address_as}' now and then, not in every sentence."
+        parts = [PERSONA.format(name=self.cfg.name, user=self.cfg.user_name, today=today, personality=personality)]
+        if getattr(self, "_spoken", False):
+            parts.append(SPOKEN)
         pb = self.prefs.prompt_block()
         if pb:
             parts.append(pb)
