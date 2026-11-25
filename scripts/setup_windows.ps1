@@ -91,6 +91,14 @@ if (-not $ok -and $Cuda) {
   }
 }
 if (-not $ok) { $ok = (Install-Llama "cpu" $true) -or (Install-Llama "cpu" $false) }
+if ($ok -and $Cuda -and -not (Test-Llama)) {
+  # The GPU runner won't load on this PC: swap in the CPU one so AETHER at least runs. Re-run setup later to try the GPU again.
+  Write-Host "`nThe GPU model runner won't load here; installing the CPU one so AETHER still works (slower)." -ForegroundColor Yellow
+  $have = $true
+  if ((Install-Llama "cpu" $true) -or (Install-Llama "cpu" $false)) {
+    if (Test-Llama) { Write-Host "Running on the CPU for now. Doctor says why the GPU one didn't load." -ForegroundColor Yellow }
+  }
+}
 if ($ok -and -not (Test-Llama)) {
   Write-Host "`nThe model runner is installed but Windows can't load it (a DLL is missing)." -ForegroundColor Red
   Write-Host "Install the Microsoft Visual C++ Redistributable (x64): https://aka.ms/vs/17/release/vc_redist.x64.exe"
