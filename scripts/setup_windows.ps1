@@ -62,12 +62,25 @@ function Install-Llama($flavour, $pin) {
   & $Pip -m pip install $spec --only-binary llama-cpp-python --prefer-binary --extra-index-url "$Idx/$flavour" @extra | Out-Host  # Out-Host: keep pip's text out of the return value
   return ($LASTEXITCODE -eq 0)
 }
+# The CUDA wheel needs the CUDA 12 runtime DLLs. Install them from pip so the CUDA Toolkit isn't needed;
+# aether/llm/cuda_dlls.py puts their folders on the DLL search path before llama_cpp is imported.
+function Install-CudaRuntime {
+  Write-Host "Installing the CUDA 12.4 runtime DLLs (no CUDA Toolkit needed)..." -ForegroundColor Cyan
+  & $Pip -m pip install "nvidia-cuda-runtime-cu12==12.4.*" "nvidia-cublas-cu12==12.4.*" | Out-Host
+}
+function Test-Llama {
+  & $Pip -c "from aether.llm.cuda_dlls import import_llama; import_llama()" 2>$null | Out-Host
+  return ($LASTEXITCODE -eq 0)
+}
+if ($Cuda) { Install-CudaRuntime }
+# Installed but not loading means a missing DLL, not a bad wheel: don't download the 400 MB runner again for that.
+$loadFail = $have -and -not (Test-Llama)
 $gpu = $false
 if ($have) {
-  & $Pip -c "import llama_cpp, sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)"
+  & $Pip -c "import sys; from aether.llm.cuda_dlls import import_llama; sys.exit(0 if import_llama().llama_supports_gpu_offload() else 1)" 2>$null
   $gpu = ($LASTEXITCODE -eq 0)
 }
-$ok = $have -and ($gpu -or -not $Cuda)
+$ok = $have -and ($gpu -or $loadFail -or -not $Cuda)
 if ($ok) { Write-Host "The model runner is already installed$(if ($gpu) { ' (GPU build)' })." -ForegroundColor Green }
 if (-not $ok -and $Cuda) {
   # Needs an NVIDIA driver 550 or newer: update it from the NVIDIA app if the GPU isn't used.
@@ -78,6 +91,12 @@ if (-not $ok -and $Cuda) {
   }
 }
 if (-not $ok) { $ok = (Install-Llama "cpu" $true) -or (Install-Llama "cpu" $false) }
+if ($ok -and -not (Test-Llama)) {
+  Write-Host "`nThe model runner is installed but Windows can't load it (a DLL is missing)." -ForegroundColor Red
+  Write-Host "Install the Microsoft Visual C++ Redistributable (x64): https://aka.ms/vs/17/release/vc_redist.x64.exe"
+  Write-Host "then reopen PowerShell and run '.\.venv\Scripts\python scripts\doctor.py'."
+  $ok = $true  # installed; doctor explains the rest
+} elseif ($ok) { Write-Host "The model runner loads." -ForegroundColor Green }
 if (-not $ok) {
   Write-Host "`nCouldn't install a prebuilt model runner. Everything else is installed." -ForegroundColor Red
   Write-Host "Run '.\.venv\Scripts\python scripts\doctor.py' and send its output; the rest of AETHER (and the tests) work without it."

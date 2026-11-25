@@ -23,12 +23,24 @@ def line(mark: str, what: str, fix: str = "") -> None:
     print(f"[{mark}] {what}" + (f"\n         -> {fix}" if fix else ""))
 
 
+_errors: dict[str, str] = {}
+
+
 def has(mod: str) -> bool:
+    if mod in _errors:
+        return not _errors[mod]
     try:
         importlib.import_module(mod)
-        return True
-    except Exception:
-        return False
+        _errors[mod] = ""
+    except ModuleNotFoundError as e:
+        _errors[mod] = "not installed" if e.name and mod.startswith(e.name.split(".")[0]) else f"needs {e.name}"
+    except Exception as e:  # installed but broken: show the real reason
+        _errors[mod] = f"{type(e).__name__}: {str(e).splitlines()[0][:300]}"
+    return not _errors[mod]
+
+
+def why(mods) -> str:
+    return "; ".join(f"{m} ({_errors[m]})" for m in mods if _errors.get(m))
 
 
 def main() -> int:
@@ -47,8 +59,15 @@ def main() -> int:
                      ("huggingface_hub", "model download")]:
         line(OK if has(mod) else BAD, f"{mod} ({why})", "" if has(mod) else "Re-run scripts\\setup_windows.ps1")
 
-    if has("llama_cpp"):
-        import llama_cpp
+    from aether.llm import cuda_dlls
+    try:
+        llama_cpp = cuda_dlls.import_llama()
+        llama_err = ""
+    except ModuleNotFoundError:
+        llama_cpp, llama_err = None, "missing"
+    except ImportError as e:
+        llama_cpp, llama_err = None, str(e)
+    if llama_cpp:
         gpu = False
         try:
             gpu = bool(llama_cpp.llama_supports_gpu_offload())
@@ -56,6 +75,11 @@ def main() -> int:
             pass
         line(OK if gpu else WARN, f"llama-cpp-python {llama_cpp.__version__} ({'GPU build' if gpu else 'CPU only'})",
              "" if gpu else "For the RTX 3050: re-run setup_windows.ps1 with -Cuda, and update the NVIDIA driver (550+)")
+    elif llama_err != "missing":
+        first, _, fix = llama_err.partition("\n")
+        line(BAD, f"llama-cpp-python can't load: {first[:300]}", fix.strip() or cuda_dlls.FIX)
+        dirs = cuda_dlls.dll_dirs()
+        print("         CUDA DLL folders found: " + (", ".join(str(d) for d in dirs) if dirs else "none"))
     else:
         line(BAD, "llama-cpp-python (the model runner) is missing",
              "Install the prebuilt one, no compiler needed:\n            .\\.venv\\Scripts\\pip install llama-cpp-python==0.3.4 "
@@ -89,8 +113,9 @@ def main() -> int:
              f"Create or fix these in aether.toml: {', '.join(missing)}" if missing else "")
 
     voice = [m for m in ("faster_whisper", "piper", "openwakeword", "sounddevice") if not has(m)]
-    line(OK if not voice else WARN, "voice packages" + (f" missing: {', '.join(voice)}" if voice else ""),
-         'pip install -e ".[voice]"' if voice else "")
+    line(OK if not voice else WARN, "voice packages" + (f": {why(voice)}" if voice else ""),
+         '.\\.venv\\Scripts\\python -m pip install -e ".[voice]"   (send its last 30 lines if this stays)'
+         if voice else "")
     if cfg.voice.tts_voice_path and not Path(cfg.voice.tts_voice_path).exists():
         found = sorted((ROOT / "models" / "voices").rglob("*.onnx"))
         line(WARN, "speaking voice file not found",
