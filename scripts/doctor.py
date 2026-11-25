@@ -37,7 +37,9 @@ def main() -> int:
     if (v.major, v.minor) in {(3, 11), (3, 12)}:
         line(OK, f"Python {v.major}.{v.minor}")
     else:
-        line(BAD, f"Python {v.major}.{v.minor}", "Install Python 3.11 from python.org and re-run scripts\\setup_windows.ps1")
+        line(BAD, f"This Python is {v.major}.{v.minor}; AETHER needs 3.11 (or 3.12)",
+             "Keep your current Python and install 3.11 next to it (python.org, keep 'py launcher' ticked), then re-run "
+             "scripts\\setup_windows.ps1: it rebuilds .venv with 3.11. Run this check with .\\.venv\\Scripts\\python")
     if ".venv" not in sys.prefix:
         line(WARN, "Not running inside .venv", "Use .\\.venv\\Scripts\\python scripts\\doctor.py")
 
