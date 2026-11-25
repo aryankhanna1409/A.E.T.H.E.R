@@ -118,7 +118,7 @@ notepad aether.toml                                                        # mod
 Other ways in:
 
 * `.\.venv\Scripts\aether` for the terminal (type `/help`).
-* `.\.venv\Scripts\aether-voice` for hands-free voice.
+* Always listening once started: say "Nova", "Jarvis" or "AETHER". Mute it from the tray. (`.\.venv\Scripts\aether-voice` runs it without the tray.)
 * `.\.venv\Scripts\aether-tray` for the tray icon and the `Ctrl+Alt+J` voice hotkey (`pip install -e ".[tray]"` first).
 * `desktop\` holds a Tauri 2 shell that wraps the UI as a native window (see `desktop\README.md`).
 * `scripts\build_installer.ps1` builds a one-click `AETHER-Setup.exe` with Inno Setup.

@@ -108,11 +108,10 @@ Things to try:
 - **Ctrl+Alt+J** anywhere opens the voice screen. Hold **Space** and say "good morning".
 - In chat: "set a timer for 10 minutes for the pasta", "play lofi on youtube", "what's 15% of 2400", "take a note: buy a LiPo", "what's on tomorrow?", "remind me to submit the essay on friday".
 
-For hands-free "hey Jarvis" voice (wake word, always listening):
-
-```powershell
-.\.venv\Scripts\aether-voice
-```
+**Always listening.** Once the model has loaded, AETHER listens in the background. Just say **"Nova"**, **"Jarvis"** or **"AETHER"** (with or without "hey"). Nova turns amber, and you talk. You can also say the command in the same breath: "Jarvis, set a timer for five minutes". It uses the model the app already loaded, so it needs no extra GPU memory, and the microphone check uses very little CPU.
+- **Mute the microphone:** tray menu, untick **Always listening (mic on)**. It stays muted after a restart until you tick it again.
+- If it doesn't respond, the reason is in `%LOCALAPPDATA%\AETHER\logs\voice.log`. In a noisy room, raise `[voice] vad_energy` in `aether.toml` a little (e.g. 0.02).
+- Without the tray, `.\.venv\Scripts\aether-voice` runs the same listener in a PowerShell window.
 
 ### Teach it your accent (5 minutes, recommended)
 
@@ -126,7 +125,7 @@ It shows what it heard for each phrase and learns the words it gets wrong ("on" 
 
 After that it keeps learning: when the HUD mishears you, click what it heard, fix it and press Enter. When the same fix comes up twice, it remembers it.
 
-You can wake it with **"hey Jarvis"** or just **"hey Nova"**, and say a command in the same breath ("Nova, what's the time?").
+You can wake it with **"Nova"**, **"Jarvis"** or **"AETHER"** (with or without "hey"), and say a command in the same breath ("Nova, what's the time?").
 
 ### Meet Nova, your desktop companion
 
