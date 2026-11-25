@@ -120,6 +120,10 @@ class SecurityConfig(BaseModel):
     allowed_write_roots: list[str] = Field(default_factory=list)  # empty = read-only to start
     auto_approve: list[str] = Field(default_factory=lambda: ["fs.read", "fs.list", "fs.search", "web.search", "web.fetch",
                                                               "web.open"])
+    # Actions that run straight away, with no Allow box, when YOU ask for them in what you just said or typed
+    # ("shut down my pc", "open spotify"). They still ask if the request came from a document, a web page,
+    # a background goal, or anything that looked like a prompt injection. Set to [] to always be asked.
+    run_when_asked: list[str] = Field(default_factory=lambda: ["system.power", "app.open"])
     network: bool = True  # web research on/off
     # Apps AETHER may open: name -> command or full path to the .exe
     apps: dict[str, str] = Field(default_factory=lambda: {
