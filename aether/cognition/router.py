@@ -4,6 +4,8 @@ Routes can combine (hybrid execution). Ordinary conversation gets no retrieval.
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 
 from ..core.config import MemoryConfig
@@ -26,6 +28,25 @@ class QueryRouter:
     def __init__(self, cfg: MemoryConfig, store: MemoryStore, kg: KnowledgeGraph, reranker=None):
         self.cfg, self.store, self.kg, self.reranker = cfg, store, kg, reranker
 
+    @staticmethod
+    def named_in(message: str, known: set[str]) -> list[str]:
+        """Known entities named in the message itself, found by code rather than trusting the model's entity list
+        (a 7B model often drops a surname or names nobody). A first name counts when only one entity has it."""
+        text = norm(message)
+        found = [e for e in known if len(e) >= 3 and e != "user"
+                 and re.search(rf"(?<![a-z0-9_]){re.escape(e)}(?![a-z0-9_])", text)]
+        firsts: dict[str, list[str]] = {}
+        for e in known:
+            if "_" in e:
+                firsts.setdefault(e.split("_", 1)[0], []).append(e)
+        for word in set(re.findall(r"[a-z0-9]+", text)):
+            hits = firsts.get(word, [])
+            if len(word) >= 3 and len(hits) == 1 and hits[0] not in found and word not in known:
+                found.append(hits[0])
+        # the longest names first, and drop a name that is only part of a longer one found ("drive_unit" in "rover")
+        found.sort(key=len, reverse=True)
+        return [e for i, e in enumerate(found) if not any(e in f and e != f for f in found[:i])][:8]
+
     def plan(self, ir: IntentIR, message: str) -> RoutePlan:
         plan = RoutePlan()
         needs = set(ir.needs)
@@ -33,6 +54,7 @@ class QueryRouter:
         # Entity grounding: if the message names something the KG knows, symbolic context is cheap and relevant.
         known = self.kg.entities()
         mentioned = [e.name for e in ir.entities if norm(e.name) in known]
+        mentioned += [e for e in self.named_in(message, known) if e not in {norm(m) for m in mentioned}]
         if mentioned:
             needs.add("symbolic")
             plan.reasons.append(f"known entities mentioned: {', '.join(mentioned)}")
