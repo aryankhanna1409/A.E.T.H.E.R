@@ -3,7 +3,9 @@
 background thread."""
 from __future__ import annotations
 
+import sys
 import threading
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -26,6 +28,7 @@ class FolderWatcher:
     def scan(self, folder: str) -> dict[str, int]:
         stats = {"added": 0, "updated": 0, "removed": 0, "skipped": 0}
         root = Path(folder).expanduser().resolve()
+        status = _Status(root.name or str(root))
         known = {r[0]: r[1] for r in self.store.db.execute(
             "SELECT path, mtime FROM indexed_files WHERE path LIKE ?", (str(root) + "%",)).fetchall()}
         seen = set()
@@ -50,6 +53,7 @@ class FolderWatcher:
                 stats["updated"] += 1
             else:
                 stats["added"] += 1
+            status.update(stats["added"] + stats["updated"], p.name)
             n = self.store.add_document(text, sp)
             with self.store.lock:
                 self.store.db.execute("INSERT OR REPLACE INTO indexed_files VALUES (?,?,?)", (sp, mtime, n))
@@ -62,7 +66,9 @@ class FolderWatcher:
                 self.store.db.execute("DELETE FROM indexed_files WHERE path=?", (gone,))
                 self.store.db.commit()
             stats["removed"] += 1
+        status.done(stats)
         return stats
+
 
     def watch(self, folders: list[str], interval_s: int = 300) -> threading.Thread:
         self.folders = folders
@@ -80,3 +86,28 @@ class FolderWatcher:
 
     def stop(self) -> None:
         self._stop.set()
+
+
+
+class _Status:
+    """One console line that updates in place while a folder is indexed, then a one-line summary."""
+
+    def __init__(self, name: str):
+        self.name, self.shown, self.last = name, False, 0.0
+        self.tty = bool(getattr(sys.stderr, "isatty", lambda: False)())
+
+    def update(self, n: int, current: str) -> None:
+        now = time.monotonic()
+        if not self.tty or now - self.last < 0.2:
+            return
+        self.last, self.shown = now, True
+        sys.stderr.write(f"\rIndexing {self.name}: {n + 1} files  {current[:40]:<40}")
+        sys.stderr.flush()
+
+    def done(self, stats: dict[str, int]) -> None:
+        if self.shown:
+            sys.stderr.write("\r" + " " * 90 + "\r")
+            sys.stderr.flush()
+        if stats["added"] or stats["updated"] or stats["removed"]:
+            log.info("Indexed %s: %d new, %d changed, %d removed", self.name, stats["added"], stats["updated"],
+                     stats["removed"])

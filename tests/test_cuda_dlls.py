@@ -104,3 +104,30 @@ def test_doctor_shows_the_real_import_error(tmp_path, monkeypatch, capsys):
     assert not doctor.has("brokenvoice") and not doctor.has("surely_not_a_module_xyz")
     assert doctor.why(["brokenvoice", "surely_not_a_module_xyz"]) == \
         "brokenvoice (OSError: av.dll not found); surely_not_a_module_xyz (not installed)"
+
+
+def test_embedder_never_prints_progress_bars():
+    from aether.llm.embeddings import SentenceTransformerEmbedder
+    calls = {}
+
+    class Model:
+        def encode(self, texts, **kw):
+            calls.update(kw)
+            import numpy as np
+            return np.zeros((len(texts), 2))
+
+    e = SentenceTransformerEmbedder.__new__(SentenceTransformerEmbedder)
+    e.model = Model()
+    assert e.embed(["a"]) == [[0.0, 0.0]] and calls["show_progress_bar"] is False
+
+
+def test_index_status_summarises_once(caplog):
+    import logging
+    from aether.retrieval.watcher import _Status
+    s = _Status("Documents")
+    s.tty = False
+    s.update(3, "notes.md")
+    with caplog.at_level(logging.INFO, logger="aether"):
+        s.done({"added": 2, "updated": 1, "removed": 0, "skipped": 0})
+        s.done({"added": 0, "updated": 0, "removed": 0, "skipped": 5})
+    assert [r.getMessage() for r in caplog.records] == ["Indexed Documents: 2 new, 1 changed, 0 removed"]
