@@ -79,25 +79,58 @@ class RemoteAether:
 
 
 class WakeWord:
+    """openWakeWord's "hey Jarvis" detector.
+
+    Two things break it on a fresh Windows install, and both used to kill the whole listener:
+    openWakeWord 0.6 defaults to TensorFlow Lite, which has no Windows build, and its pip package ships
+    without the model files. So: always use ONNX, and fetch the model files (~6 MB) the first time."""
+
     def __init__(self, cfg: VoiceConfig):
         from pathlib import Path
 
         from openwakeword.model import Model
         name = cfg.wake_word
-        kwargs: dict = {"wakeword_models": [name]}
+        custom = name.endswith(".onnx")
+        if not custom:
+            ensure_wake_models(name)
+        kwargs: dict = {"wakeword_models": [name], "inference_framework": "onnx"}
         verifier = Path(cfg.wake_verifier_path).expanduser() if cfg.wake_verifier_path else None
         if verifier and verifier.exists():  # tuned to your voice by scripts/learn_my_voice.py
-            key = Path(name).stem if name.endswith(".onnx") else name
+            key = Path(name).stem if custom else name
             kwargs.update(custom_verifier_models={key: str(verifier)}, custom_verifier_threshold=0.3)
         try:
             self.model = Model(**kwargs)
-        except TypeError:  # older openWakeWord without verifiers
+        except TypeError:  # older openWakeWord without verifiers or inference_framework
             self.model = Model(wakeword_models=[name])
         self.threshold = cfg.wake_threshold
 
     def heard(self, frame_int16) -> bool:
         scores = self.model.predict(frame_int16)
         return max(scores.values(), default=0) >= self.threshold
+
+
+def ensure_wake_models(name: str) -> None:
+    """Download openWakeWord's shared feature models and the named wake word model if they're missing."""
+    from pathlib import Path
+
+    import openwakeword
+    models = Path(openwakeword.__file__).parent / "resources" / "models"
+    have = {p.name for p in models.glob("*.onnx")} if models.is_dir() else set()
+    if {"melspectrogram.onnx", "embedding_model.onnx"} <= have and any(n.startswith(name) for n in have):
+        return
+    from openwakeword.utils import download_models
+    log.info("downloading the openWakeWord model for %s (one time, ~6 MB)", name)
+    try:
+        download_models(model_names=[name])
+    except TypeError:  # pragma: no cover - older signature
+        download_models()
+
+
+class NoWakeWord:
+    """Used when openWakeWord can't load: saying the name (checked by Whisper) still wakes AETHER."""
+
+    def heard(self, frame_int16) -> bool:
+        return False
 
 
 class VoiceAssistant:
@@ -125,7 +158,15 @@ class VoiceAssistant:
             from .tts import TextToSpeech
             tts = TextToSpeech(cfg)
         self.stt, self.tts = stt, tts
-        self.wake = wake if wake is not None else WakeWord(cfg)
+        if wake is None:
+            try:
+                wake = WakeWord(cfg)
+            except Exception as e:
+                log.warning("the \"hey Jarvis\" detector didn't load (%s); listening for the name only", e)
+                if self.name_stt is None:
+                    raise
+                wake = NoWakeWord()
+        self.wake = wake
         self.frames: queue.Queue = queue.Queue(maxsize=500)
         self.on_state = None  # called with the new state (idle/listening/thinking/speaking), e.g. to tell Nova
         self.state = "idle"

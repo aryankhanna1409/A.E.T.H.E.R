@@ -17,12 +17,24 @@ def speakable(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def find_voice(configured: str) -> str | None:
+    """The configured Piper voice, or else the first one get_model.py downloaded into models/voices."""
+    from pathlib import Path
+    if configured and Path(configured).expanduser().exists():
+        return str(Path(configured).expanduser())
+    root = Path(__file__).resolve().parents[2] / "models" / "voices"
+    found = sorted(root.rglob("*.onnx")) if root.is_dir() else []
+    return str(found[0]) if found else None
+
+
 class TextToSpeech:
     def __init__(self, cfg: VoiceConfig):
         from piper import PiperVoice
-        if not cfg.tts_voice_path:
-            raise RuntimeError("Set [voice].tts_voice_path to a Piper .onnx voice (see README).")
-        self.voice = PiperVoice.load(cfg.tts_voice_path)
+        path = find_voice(cfg.tts_voice_path)
+        if path is None:
+            raise RuntimeError("No speaking voice: run scripts\\get_model.py voice, or set [voice].tts_voice_path "
+                               "to a Piper .onnx voice (see README).")
+        self.voice = PiperVoice.load(path)
         self.rate = self.voice.config.sample_rate
         self._stop = threading.Event()
         self.speaking = threading.Event()
