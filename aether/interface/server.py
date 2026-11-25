@@ -76,6 +76,16 @@ class PrefEdit(BaseModel):
     value: str = ""
 
 
+class ImportIn(BaseModel):
+    text: str
+    filename: str = ""
+
+
+class ImportSave(BaseModel):
+    items: list[dict]
+    label: str = ""
+
+
 class Text(BaseModel):
     text: str
 
@@ -410,6 +420,17 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.get("/api/memories")
     def memories(layer: str | None = None):
         return [m.__dict__ for m in aether.store.list(layer, 200)]
+
+    @app.post("/api/memories/import/preview")
+    def import_preview(body: ImportIn):
+        from ..memory.importer import mark_existing, parse
+        items = mark_existing(parse(body.text[:2_000_000], body.filename), aether.store)
+        return {"items": [c.as_dict() for c in items[:2000]]}
+
+    @app.post("/api/memories/import")
+    def import_save(body: ImportSave):
+        from ..memory.importer import save
+        return save(aether, [i for i in body.items[:2000] if isinstance(i, dict)], label=body.label or "import")
 
     @app.delete("/api/memories/{mid}")
     def forget(mid: int):

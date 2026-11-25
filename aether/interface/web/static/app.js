@@ -570,7 +570,7 @@ const Routines = {
 
 RENDER.memory = async (p, tab = store.get("memTab", "memories")) => {
   p.innerHTML = `<div class="page-head"><div class="grow"><h1>Memory</h1><p>Everything AETHER remembers, likes and has noticed. All of it can be corrected or deleted.</p></div>
-    <div class="tabs" id="mt">${["memories", "preferences", "patterns"].map(t => `<button data-t="${t}" class="${t === tab ? "active" : ""}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}</div></div><div id="mb"></div>`;
+    <div class="tabs" id="mt">${["memories", "preferences", "patterns", "import"].map(t => `<button data-t="${t}" class="${t === tab ? "active" : ""}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}</div></div><div id="mb"></div>`;
   $$("#mt button", p).forEach(b => b.onclick = () => { store.set("memTab", b.dataset.t); RENDER.memory(p, b.dataset.t); });
   const mb = $("#mb", p);
   if (tab === "memories") {
@@ -598,6 +598,42 @@ RENDER.memory = async (p, tab = store.get("memTab", "memories")) => {
       <div class="card"><h3>Timeline</h3>${tl.slice(0, 40).map(e => `<div class="item"><div class="grow">${esc(e.key)}<div class="meta">${esc(e.change)} · ${ago(e.t)}</div></div></div>`).join("") || `<div class="empty">No changes yet.</div>`}</div></div>`;
     $("#addp", mb).onclick = async () => { const v = $("#np", mb).value.trim(); if (!v) return; await api("/api/preferences", { method: "POST", body: { key: "", action: "add", value: v } }); RENDER.memory(p, tab); };
     $$("[data-k]", mb).forEach(b => b.onclick = async () => { await api("/api/preferences", { method: "POST", body: { key: b.dataset.k, action: b.dataset.a } }); RENDER.memory(p, tab); });
+  } else if (tab === "import") {
+    mb.innerHTML = `<div class="card"><h3>Bring in memories from another assistant</h3>
+      <p class="muted" style="margin-top:-4px">Paste or drop what ChatGPT, Claude or Gemini remembers about you (their memory or "saved info" text), ChatGPT's <code>conversations.json</code>, or your own notes. Nothing is saved until you tick it and press Save. Lines that try to give an AI instructions are never imported.</p>
+      <div id="dz" style="border:1.5px dashed #8886;border-radius:12px;padding:14px;margin:10px 0">
+        <textarea class="field" id="it" rows="7" style="width:100%;box-sizing:border-box" placeholder="Paste here, or drop a .txt / .md / .json file"></textarea>
+        <div class="row" style="margin-top:8px"><input type="file" id="if" accept=".txt,.md,.json,.markdown"><span class="grow"></span><button id="ip">Review</button></div>
+      </div><div id="ir"></div></div>`;
+    let fname = "pasted";
+    const preview = async () => {
+      const text = $("#it", mb).value; if (!text.trim()) return;
+      const { items } = await api("/api/memories/import/preview", { method: "POST", body: { text, filename: fname } });
+      const box = $("#ir", mb);
+      if (!items.length) { box.innerHTML = `<div class="empty">No facts or preferences found in that.</div>`; return; }
+      box.innerHTML = `<div class="row" style="margin:6px 0"><b class="grow">${items.length} found · <span id="ic"></span> ticked</b><button class="ghost" id="ia">Tick all</button><button class="ghost" id="in">Untick all</button><button id="is">Save ticked</button></div>
+        ${items.map((c, i) => `<label class="item" style="cursor:pointer"><input type="checkbox" data-i="${i}" ${c.keep ? "checked" : ""} ${c.flags.length ? "disabled" : ""}>
+          <div class="grow">${esc(c.text)}<div class="meta"><span class="chip">${esc(c.kind)}</span>${c.existing ? " · already remembered" : ""}${c.flags.length ? ` · <span class="chip bad">looks like an instruction, not imported</span>` : ""}</div></div></label>`).join("")}`;
+      const boxes = $$("[data-i]", box);
+      const count = () => { $("#ic", box).textContent = boxes.filter(b => b.checked).length; };
+      boxes.forEach(b => b.onchange = count); count();
+      $("#ia", box).onclick = () => { boxes.forEach(b => { if (!b.disabled) b.checked = true; }); count(); };
+      $("#in", box).onclick = () => { boxes.forEach(b => b.checked = false); count(); };
+      $("#is", box).onclick = async () => {
+        const chosen = boxes.filter(b => b.checked).map(b => items[+b.dataset.i]);
+        if (!chosen.length) return toast("Nothing ticked");
+        const r = await api("/api/memories/import", { method: "POST", body: { items: chosen, label: fname } });
+        toast(`Saved ${r.saved} memor${r.saved === 1 ? "y" : "ies"}`, "Ask “what do you know about me?” to check.");
+        store.set("memTab", "memories"); RENDER.memory(p, "memories");
+      };
+    };
+    const load = async f => { fname = f.name; $("#it", mb).value = await f.text(); preview(); };
+    $("#if", mb).onchange = e => { if (e.target.files[0]) load(e.target.files[0]); };
+    const dz = $("#dz", mb);
+    dz.ondragover = e => { e.preventDefault(); dz.style.background = "#8881"; };
+    dz.ondragleave = () => { dz.style.background = ""; };
+    dz.ondrop = e => { e.preventDefault(); dz.style.background = ""; if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]); };
+    $("#ip", mb).onclick = preview;
   } else {
     const obs = await api("/api/observations");
     mb.innerHTML = `<div class="card"><h3><span class="grow">Patterns AETHER noticed</span><button class="ghost" id="an">Look for new patterns</button></h3>
