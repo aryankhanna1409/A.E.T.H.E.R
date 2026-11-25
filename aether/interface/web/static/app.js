@@ -87,7 +87,7 @@ $("#stop").onclick = async () => {
 
 async function pollPending() {
   try {
-    const items = await api("/api/pending");
+    const items = await api("/api/pending" + (document.visibilityState === "visible" ? "?visible=1" : ""));
     if (items.length && S.pendingId !== items[0].id) {
       S.pendingId = items[0].id;
       $("#approval-text").textContent = items[0].prompt;

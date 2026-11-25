@@ -125,6 +125,7 @@ class Tray:
         self.icon = None
         self.server_log = log_dir() / "server.log"
         self._stop = threading.Event()
+        self._surfaced: set[str] = set()
 
     # ---- server
     def api(self, path: str, method: str = "GET", body: dict | None = None, timeout: float = 5):
@@ -186,12 +187,28 @@ class Tray:
                 log.warning("tray notification failed: %s", e)
 
     def poll_once(self) -> int:
-        if self.paused:
+        if self.paused:          # notifications are paused, but an approval you asked for still has to show
+            self.surface_approvals()
             return 0
         items = self.api("/api/notifications").get("items", [])
         for n in items:
             self.notify(n["title"], n["body"])
+        self.surface_approvals()
         return len(items)
+
+    def surface_approvals(self) -> bool:
+        """A request made by voice (e.g. "shut down my pc") needs your OK on screen. If no AETHER window is
+        showing, open one so the Allow / Deny box appears. Returns True if it opened the app."""
+        w = self.api("/api/pending/watch")
+        new = [i for i in w.get("items", []) if i["id"] not in self._surfaced]
+        self._surfaced.update(i["id"] for i in new)
+        if not new:
+            return False
+        self.notify("AETHER needs your OK", new[0]["prompt"].split("\n")[0])
+        if not w.get("window_visible"):
+            self.open()
+            return True
+        return False
 
     def emergency_stop(self) -> None:
         try:

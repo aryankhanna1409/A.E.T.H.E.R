@@ -111,3 +111,35 @@ def test_pythonw_streams_go_to_a_log_file(tmp_path, monkeypatch):
     print("hello from pythonw")
     sys.stdout.isatty()                               # uvicorn calls this; it crashed on None
     assert path == tmp_path / "logs" / "server.log" and "hello from pythonw" in path.read_text()
+
+
+def test_voice_approvals_open_the_app_when_no_window_shows_them():
+    t = Tray()
+    opened, notes = [], []
+    t.open, t.notify = lambda hud=False: opened.append(hud), lambda title, body: notes.append(title)
+    state = {"items": [{"id": "a1", "prompt": "Shut down the PC?\nIt asks first."}], "window_visible": False}
+    t.api = lambda path, *a, **k: state if path == "/api/pending/watch" else {"items": []}
+    assert t.surface_approvals() and opened == [False] and notes == ["AETHER needs your OK"]
+    assert not t.surface_approvals() and len(opened) == 1          # the same request isn't surfaced twice
+    state["items"].append({"id": "b2", "prompt": "Open Spotify?"})
+    state["window_visible"] = True
+    assert not t.surface_approvals() and len(opened) == 1 and len(notes) == 2   # the app already shows it
+    t.paused = True
+    state["items"].append({"id": "c3", "prompt": "Restart?"})
+    state["window_visible"] = False
+    t.poll_once()
+    assert len(opened) == 2
+
+
+def test_server_knows_when_a_window_can_show_approvals(tmp_path):
+    from fastapi.testclient import TestClient
+    from aether.interface.server import create_app
+    cfgfile = tmp_path / "aether.toml"
+    cfgfile.write_text(f'home = "{(tmp_path / "h").as_posix()}"\n[embeddings]\nbackend = "lexical"\n'
+                       '[llm]\nmodel_path = "missing.gguf"\n[memory]\nwatch_interval_s = 0\n')
+    c = TestClient(create_app(str(cfgfile)))
+    assert c.get("/api/pending/watch").json() == {"items": [], "window_visible": False}
+    assert c.get("/api/pending").json() == []                       # a hidden tab doesn't count
+    assert c.get("/api/pending/watch").json()["window_visible"] is False
+    c.get("/api/pending", params={"visible": 1})
+    assert c.get("/api/pending/watch").json()["window_visible"] is True
