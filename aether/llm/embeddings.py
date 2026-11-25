@@ -27,7 +27,8 @@ class SentenceTransformerEmbedder:
         self.name = f"st:{cfg.model}"
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        return self.model.encode(texts, normalize_embeddings=True).tolist()
+        # show_progress_bar=False: otherwise every call prints its own "Batches: 100%" bar to the console
+        return self.model.encode(texts, normalize_embeddings=True, show_progress_bar=False).tolist()
 
 
 def load_embedder(cfg: EmbeddingConfig) -> Embedder | None:
