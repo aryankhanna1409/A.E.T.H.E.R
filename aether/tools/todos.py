@@ -12,15 +12,27 @@ from ..memory.prospective import ReminderItem, describe_repeat, parse_at, parse_
 from .registry import Tool
 
 
-def say_item(item: ReminderItem, today: date | None = None) -> str:
+def clock12(hm: str) -> str:
+    """'18:00' -> '6 pm', '09:30' -> '9:30 am'."""
+    h, m = (int(x) for x in hm.split(":"))
+    suffix = "am" if h < 12 else "pm"
+    h12 = h % 12 or 12
+    return f"{h12} {suffix}" if m == 0 else f"{h12}:{m:02d} {suffix}"
+
+
+def when_words(item: ReminderItem, today: date | None = None) -> str:
     today = today or date.today()
     if item.repeat:
         when = describe_repeat(item.repeat)
     else:
         d = date.fromisoformat(item.due)
         when = "today" if d == today else "tomorrow" if (d - today).days == 1 else f"on {d:%A %d %B}" \
-            if d > today else f"(was due {d:%d %B})"
-    return f"{item.text}, {when}" + (f" at {item.at}" if item.at else "")
+            if d > today else f"overdue since {d:%d %B}"
+    return when + (f" at {clock12(item.at)}" if item.at else "")
+
+
+def say_item(item: ReminderItem, today: date | None = None) -> str:
+    return f"{item.text} ({when_words(item, today)})"
 
 
 def todo_tools(a) -> list[Tool]:
@@ -32,8 +44,9 @@ def todo_tools(a) -> list[Tool]:
         day = "" if rep else re.sub(r"\b(?:at\s+)?\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm)\b|\bat\s+\d{1,2}(?::\d{2})?\b|"
                                     r"\b(?:this\s+)?(?:morning|afternoon|evening|night|tonight|noon)\b", "", when).strip()
         item = a.reminders.add(text, day or ("" if rep else "today"), rep, t)
-        verb = "Added to your to-do list" if not (rep or t or when) else "Okay"
-        return f"{verb}: {say_item(item)}."
+        if item.repeat or item.at:
+            return f"Got it. I'll remind you to {item.text} {when_words(item)}."
+        return f"Added {item.text} to your to-do list for {when_words(item).removeprefix('on ')}."
 
     def listing(when: str = "") -> str:
         today = date.today()
@@ -55,7 +68,9 @@ def todo_tools(a) -> list[Tool]:
             return f"I couldn't find '{item}' on your list."
         after = a.reminders.set_status(it.id, "done")
         if it.repeat and after:
-            return f"Ticked off {it.text}. It's back on {date.fromisoformat(after.due):%A}."
+            nxt = date.fromisoformat(after.due)
+            return f"Ticked off {it.text}. It comes back " + (
+                "tomorrow." if (nxt - date.today()).days == 1 else f"on {nxt:%A}.")
         return f"Ticked off: {it.text}."
 
     def remove(item: str) -> str:
@@ -71,7 +86,8 @@ def todo_tools(a) -> list[Tool]:
             return "There's nothing on your list to repeat yet. Say, for example, 'remind me to drink water every day'."
         rep = parse_repeat(repeat) or (repeat if repeat in {"daily", "weekdays", "weekends"} else "daily")
         after = a.reminders.make_repeating(it.id, rep, parse_at(at) if at else parse_at(repeat))
-        return f"Done. {say_item(after)}." if after else "That item is gone."
+        return f"Done. {after.text[:1].upper() + after.text[1:]} now repeats {when_words(after)}." if after \
+            else "That item is gone."
 
     return [
         Tool("remind", "add something to the user's to-do list / set a reminder, optionally repeating and at a time",

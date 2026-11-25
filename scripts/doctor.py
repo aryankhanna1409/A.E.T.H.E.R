@@ -55,9 +55,9 @@ def main() -> int:
     if ".venv" not in sys.prefix:
         line(WARN, "Not running inside .venv", "Use .\\.venv\\Scripts\\python scripts\\doctor.py")
 
-    for mod, why in [("fastapi", "web app"), ("pydantic", "core"), ("cryptography", "encryption"),
+    for mod, purpose in [("fastapi", "web app"), ("pydantic", "core"), ("cryptography", "encryption"),
                      ("huggingface_hub", "model download")]:
-        line(OK if has(mod) else BAD, f"{mod} ({why})", "" if has(mod) else "Re-run scripts\\setup_windows.ps1")
+        line(OK if has(mod) else BAD, f"{mod} ({purpose})", "" if has(mod) else "Re-run scripts\\setup_windows.ps1")
 
     from aether.llm import cuda_dlls
     try:
@@ -125,7 +125,7 @@ def main() -> int:
             line(WARN, f"wake word didn't load: {str(e)[:160]}",
                  'Saying the name ("Jarvis", "Nova", "AETHER") still works. Send this line if it stays.')
     if not cfg.voice.tts_voice_path and not sorted((ROOT / "models" / "voices").rglob("*.onnx")):
-        line(WARN, "no speaking voice: always-listening can't answer out loud",
+        line(WARN, "no Piper voice: AETHER speaks with the plainer built-in Windows voice",
              "Run .\\.venv\\Scripts\\python scripts\\get_model.py voice")
     if cfg.voice.tts_voice_path and not Path(cfg.voice.tts_voice_path).exists():
         found = sorted((ROOT / "models" / "voices").rglob("*.onnx"))

@@ -176,21 +176,28 @@ export const HUD = {
     if (!this.el || this.voiceOff || !sentence) return;
     this.spoke = true;
     const gen = this.gen;
-    this.queue.push(this.deps.api("/api/speak", { method: "POST", body: { text: sentence } }).then(r => r.blob()).catch(() => null));
+    const blob = this.browserVoice ? Promise.resolve(null)
+      : this.deps.api("/api/speak", { method: "POST", body: { text: sentence } }).then(r => r.blob()).catch(() => null);
+    this.queue.push({ blob, text: sentence });
     if (!this.playing) this.playLoop(gen);
   },
   cancelSpeech() {
     this.gen = (this.gen || 0) + 1; this.queue = []; this.playing = false;
     if (this.audio) { this.audio.onended = null; this.audio.pause(); this.audio = null; }
+    if (window.speechSynthesis) speechSynthesis.cancel();
     if (this.src && this.mode === "speaking") { this.src.disconnect(); this.src = null; }
   },
   async playLoop(gen) {
     this.playing = true;
     while (this.queue.length && gen === this.gen && this.el) {
-      const blob = await this.queue.shift();
+      const item = this.queue.shift();
+      const blob = await item.blob;
       if (gen !== this.gen) return;
-      if (!blob) { this.voiceOff = true; this.queue = []; break; }
-      await this.play(blob, gen);
+      if (blob) { await this.play(blob, gen); continue; }
+      // no local voice (Piper) on the server: use the browser's own voice instead of going quiet
+      if (!window.speechSynthesis) { this.voiceOff = true; this.queue = []; break; }
+      this.browserVoice = true;
+      await this.browserSay(item.text, gen);
     }
     if (gen === this.gen) { this.playing = false; this.maybeIdle(); }
   },
@@ -204,6 +211,22 @@ export const HUD = {
     await new Promise(res => { audio.onended = audio.onerror = res; audio.play().catch(res); });
     node.disconnect(); if (this.src === node) this.src = null;
     URL.revokeObjectURL(url);
+  },
+  browserSay(text, gen) {
+    const pick = () => {
+      const vs = speechSynthesis.getVoices();
+      return vs.find(v => /en-GB/i.test(v.lang) && /Ryan|Thomas|George|Daniel|Male/i.test(v.name) && /Natural|Online/i.test(v.name))
+        || vs.find(v => /en-GB/i.test(v.lang) && /Ryan|Thomas|George|Daniel|Male/i.test(v.name))
+        || vs.find(v => /en-(GB|IN)/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang)) || null;
+    };
+    return new Promise(res => {
+      const u = new SpeechSynthesisUtterance(text);
+      u.voice = pick(); u.rate = 1.0; u.pitch = 0.95;
+      u.onend = u.onerror = res;
+      if (gen !== this.gen) return res();
+      this.setMode("speaking", "Speaking", "hold <kbd>Space</kbd> to interrupt");
+      speechSynthesis.speak(u);
+    });
   },
   maybeIdle() {
     if (!this.el || this.playing || this.queue.length || !this.streamDone || this.mode === "listening") return;

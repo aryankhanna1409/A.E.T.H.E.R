@@ -76,6 +76,24 @@ def single_instance(port: int | None = None) -> socket.socket | None:
         return None
 
 
+def find_processes(module: str) -> list:
+    """Running `python -m <module>` processes of this user (psutil), other than this one."""
+    import os
+    try:
+        import psutil
+    except ImportError:
+        return []
+    found = []
+    for p in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            cmd = p.info.get("cmdline") or []
+            if p.info["pid"] != os.getpid() and module in cmd and "-m" in cmd:
+                found.append(p)
+        except Exception:
+            continue
+    return found
+
+
 def log_tail(path: Path, lines: int = 6) -> str:
     try:
         return "\n".join(path.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-lines:])
@@ -141,6 +159,40 @@ class Tray:
             return True
         except Exception:
             return False
+
+    def server_version(self) -> str | None:
+        try:
+            return self.api("/api/status", timeout=2).get("version")
+        except Exception:
+            return None
+
+    def replace_stale(self, wait_s: float = 15) -> list[str]:
+        """Stop what an earlier run left behind. This tray holds the one-tray lock, so a voice listener or Nova that
+        is already running belongs to an old tray (or crashed one) and may be running old code: replace them. A
+        server is kept when it runs the same code as this tray, and replaced when it doesn't."""
+        from ..core.version import code_version
+        stopped = []
+        for module in ("aether.speech.voice_loop", "aether.interface.nova"):
+            for p in find_processes(module):
+                try:
+                    p.terminate()
+                    stopped.append(module)
+                except Exception:
+                    pass
+        if self.alive():
+            running = self.server_version()
+            if running != code_version():
+                log.info("the running server has other code (%s, this is %s): restarting it", running, code_version())
+                try:
+                    self.api("/api/shutdown", method="POST", timeout=3)
+                except Exception:
+                    for p in find_processes("aether.interface.server"):
+                        p.terminate()
+                end = time.time() + wait_s
+                while time.time() < end and self.alive():
+                    time.sleep(0.5)
+                stopped.append("aether.interface.server")
+        return stopped
 
     def server_command(self) -> list[str]:
         cmd = [console_python(), "-m", "aether.interface.server", "--no-browser", "--port", str(self.port)]
@@ -372,6 +424,7 @@ class Tray:
 
         def started(icon):
             icon.visible = True
+            self.replace_stale()          # after a git pull: no old server, listener or Nova left running
             self.show_nova()             # straight away: Nova sleeps (grey) until the server is up
             self.turn_on_startup_once()
             if not self.alive() and not quiet_start:
@@ -423,6 +476,20 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - needs a de
         config = str(Path("aether.toml").resolve())   # remembered for "Start with Windows"
     tray = Tray(args.port, args.hotkey, config=config)
     lock = single_instance()
+    if lock is None and tray.alive():
+        from ..core.version import code_version
+        if tray.server_version() != code_version():
+            # the tray that's running is from before an update (git pull): replace it, so the new code runs
+            log.info("replacing an AETHER tray that runs older code")
+            for p in find_processes("aether.interface.tray"):
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+            end = time.time() + 10
+            while lock is None and time.time() < end:
+                time.sleep(0.5)
+                lock = single_instance()
     if lock is None:   # already running (e.g. started at sign-in): just show the app
         if args.open:
             end = time.time() + SERVER_WAIT_S

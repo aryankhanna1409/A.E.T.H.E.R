@@ -14,7 +14,7 @@ from aether.tools.apps import Apps, Launch
 NOW = datetime(2026, 11, 25, 9, 0)
 
 
-def q(text, can_open=lambda n, exact=False: n in {"spotify", "downloads folder", "task manager", "whatsapp"}):
+def q(text, can_open=lambda n, exact=False: n in {"spotify", "downloads folder", "task manager", "whatsapp", "chrome"}):
     return quick.match(text, NOW, can_open)
 
 
@@ -57,7 +57,8 @@ def test_apps_hud_and_pc_control():
     assert q("open task manager").tool == "app_open"
     assert q("open the pod bay doors") is None                        # unknown: the model handles it
     assert q("close chrome").args == {"name": "chrome"} and q("quit spotify").tool == "app_close"
-    assert q("close it") is None
+    assert q("close it") is None and q("close the door") is None
+    assert q("remind me what we talked about yesterday") is None
     assert q("take a screenshot").tool == "screenshot" and q("screenshot").tool == "screenshot"
     assert q("show desktop").tool == "show_desktop"
     assert q("what's the weather").args == {"when": "today"}
@@ -81,11 +82,11 @@ def test_todo_end_to_end(make_aether):
     a = make_aether(FakeLLM())
     assert "drink water" in a.handle("add drink water to my todo list").text
     r = a.handle("make it a daily thing at 9pm")
-    assert "every day at 21:00" in r.text and r.state.intent == "quick"
+    assert "every day at 9 pm" in r.text and r.state.intent == "quick"
     item = a.reminders.last()
     assert item.repeat == "daily" and item.at == "21:00"
     r = a.handle("mark drink water as done")
-    assert "back on" in r.text
+    assert "comes back tomorrow" in r.text
     again = a.reminders.get(item.id)
     assert again.status == "open" and again.due > date.today().isoformat()    # comes back tomorrow
     assert "drink water" in a.handle("what's on my todo list").text
@@ -203,3 +204,12 @@ def test_nova_sends_a_typed_command_and_shows_the_answer():
         srv.shutdown()
     assert "can't reach" in ask("http://127.0.0.1:9", "hi", timeout=1)
     assert 5 <= bubble_seconds("ok") <= bubble_seconds("x" * 300) <= 25
+
+
+def test_quick_commands_stay_in_the_conversation(make_aether):
+    a = make_aether(FakeLLM())
+    a.handle("add buy milk to my todo list")
+    a.handle("set a timer for 5 minutes")
+    turns = a.conversations.history(a.session)
+    assert [t["role"] for t in turns] == ["user", "assistant"] * 2
+    assert "buy milk" in turns[1]["text"]

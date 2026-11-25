@@ -106,7 +106,13 @@ class WakeWord:
 
     def heard(self, frame_int16) -> bool:
         scores = self.model.predict(frame_int16)
-        return max(scores.values(), default=0) >= self.threshold
+        if max(scores.values(), default=0) >= self.threshold:
+            try:
+                self.model.reset()   # clear its audio buffer, or the same "hey Jarvis" fires again a moment later
+            except Exception:
+                pass
+            return True
+        return False
 
 
 def ensure_wake_models(name: str) -> None:
@@ -155,8 +161,8 @@ class VoiceAssistant:
         self.idle_seg = Segmenter(cfg.vad_energy, 500, FRAME_MS)
         self.idle_seg.max_ms = 8000
         if tts is None:
-            from .tts import TextToSpeech
-            tts = TextToSpeech(cfg)
+            from .tts import make_tts
+            tts = make_tts(cfg)
         self.stt, self.tts = stt, tts
         if wake is None:
             try:
@@ -174,6 +180,8 @@ class VoiceAssistant:
         self.running = True
         self.seg = Segmenter(cfg.vad_energy, cfg.silence_ms, FRAME_MS)
         self.barge_frames = 0
+        self.echo = 0.0   # running loudness of what the mic hears while AETHER speaks
+        self.speak_frames = 0
         self._gen = 0  # bumped to cancel queued speech
 
     @property
@@ -235,6 +243,7 @@ class VoiceAssistant:
         def start():
             if not started[0]:
                 started[0] = True
+                self.echo, self.barge_frames, self.speak_frames = 0.0, 0, 0
                 self.state = "speaking"
                 threading.Thread(target=self._speak_queue, args=(q, gen), daemon=True).start()
 
@@ -248,6 +257,7 @@ class VoiceAssistant:
                 replaced[0] = True  # the verifier changed what was said: stop and say the corrected answer
 
         reply = self.aether.handle(text, on_event=on_event, spoken=True)
+        self._drain()   # audio captured while it was thinking is stale (and may hold its own first words)
         if replaced[0] or not started[0]:
             if started[0]:
                 self.tts.stop()
@@ -260,6 +270,13 @@ class VoiceAssistant:
         q.put(None)
         start()
         return reply.text
+
+    def _drain(self) -> None:
+        try:
+            while True:
+                self.frames.get_nowait()
+        except queue.Empty:
+            pass
 
     def _speak_queue(self, q: queue.Queue, gen: int) -> None:
         while True:
@@ -287,9 +304,19 @@ class VoiceAssistant:
                     self.name_called(audio)
             return
         if self.state == "speaking":
-            if self.cfg.barge_in and rms(frame) >= self.cfg.vad_energy * 2.5:
+            # The mic also hears AETHER's own voice from the laptop speakers. Interrupt only on speech clearly louder
+            # than that echo (its running level is tracked while speaking), sustained for about a third of a second.
+            level = rms(frame)
+            self.speak_frames += 1
+            if self.speak_frames <= 10:   # the first 300 ms: just learn how loud its own voice is in the mic
+                self.echo = max(self.echo, level * 0.8)
+                return
+            loud = level >= max(self.cfg.vad_energy * 3, self.echo * 2.2)
+            if not loud:   # only quiet-enough frames teach it the echo level, so your voice doesn't raise the bar
+                self.echo = 0.95 * self.echo + 0.05 * level
+            if self.cfg.barge_in and loud:
                 self.barge_frames += 1
-                if self.barge_frames >= 8:  # ~240 ms of clear speech interrupts
+                if self.barge_frames >= 12:  # ~360 ms of clear speech interrupts
                     self._gen += 1  # drop the sentences still queued
                     self.tts.stop()
                     self.state = "listening"

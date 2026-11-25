@@ -150,7 +150,13 @@ async function speak(text) {
     const url = URL.createObjectURL(await r.blob());
     if (audioEl) audioEl.pause();
     audioEl = new Audio(url); audioEl.play();
-  } catch (e) { toast("Voice is not set up", e.message + "\nSet [voice].tts_voice_path (scripts/get_model.py voice).", "error"); }
+  } catch (e) {
+    if (!window.speechSynthesis) return toast("Voice is not set up", e.message + "\nRun scripts\\get_model.py voice.", "error");
+    speechSynthesis.cancel();   // no local voice yet: the browser's own voice reads it instead
+    const u = new SpeechSynthesisUtterance(text.replace(/[*_#`>|]/g, "").slice(0, 4000));
+    u.voice = speechSynthesis.getVoices().find(v => /en-GB/i.test(v.lang)) || null;
+    speechSynthesis.speak(u);
+  }
 }
 
 // ------------------------------------------------------------------ chat
