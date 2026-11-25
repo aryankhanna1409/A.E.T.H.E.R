@@ -7,7 +7,9 @@ A small glowing orb with eyes that floats in a corner of the screen, always on t
 - shifting between blue and amber, with ripples, while speaking
 - grey and sleepy when AETHER's server isn't running
 
-Left-click to talk (opens the voice/chat HUD), drag to move it (the spot is remembered), right-click for a menu.
+Left-click to talk (opens the voice/chat HUD), double-click to type a command to Nova right there ("open youtube",
+"remind me to stretch every day at 6pm"), drag to move it (the spot is remembered), right-click for a menu.
+Nova's answer appears in a small speech bubble next to it.
 It only asks the local server (127.0.0.1) what AETHER is doing, twice a second. Drawing is plain Tk on the CPU,
 at most 30 small frames a second, so it costs almost nothing. The tray starts it; on its own:
 
@@ -23,6 +25,7 @@ import socket
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -108,6 +111,27 @@ def enabled(path: Path | None = None) -> bool:
     return load_settings(path).get("enabled", True) is not False
 
 
+def ask(base: str, text: str, timeout: float = 180) -> str:
+    """Send one command to AETHER and return its answer (what Nova's speech bubble shows)."""
+    req = urllib.request.Request(base + "/api/chat", method="POST", data=json.dumps({"text": text}).encode(),
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8")).get("text", "") or "Done."
+    except urllib.error.HTTPError as e:
+        try:
+            return "Sorry: " + json.loads(e.read().decode("utf-8")).get("detail", str(e))[:200]
+        except Exception:
+            return f"Sorry: {e}"
+    except Exception:
+        return "I can't reach AETHER right now. Is it still starting?"
+
+
+def bubble_seconds(text: str) -> float:
+    """How long the speech bubble stays: long enough to read."""
+    return max(5.0, min(25.0, len(text) / 14))
+
+
 def fetch_state(base: str, timeout: float = 0.8) -> str:
     try:
         with urllib.request.urlopen(base + "/api/presence", timeout=timeout) as r:
@@ -154,7 +178,11 @@ class Nova:  # pragma: no cover - needs a desktop session
         self.eyes = [c.create_oval(0, 0, 0, 0, fill="white", outline="") for _ in range(2)]
         self.shine = c.create_oval(0, 0, 0, 0, fill="", outline="")
 
+        self.box = self.bubble = None
+        self._click_job = None
         menu = self.menu = tk.Menu(root, tearoff=0)
+        menu.add_command(label="Type a command…", command=self.command_box)
+        menu.add_command(label="My to-do list", command=lambda: self.send("what's on my todo list"))
         menu.add_command(label="Talk to AETHER", command=lambda: self.open(hud=True))
         menu.add_command(label="Open AETHER", command=lambda: self.open())
         menu.add_command(label="Settings", command=lambda: self.open(page="settings"))
@@ -166,6 +194,7 @@ class Nova:  # pragma: no cover - needs a desktop session
         c.bind("<ButtonPress-1>", self.on_press)
         c.bind("<B1-Motion>", self.on_drag)
         c.bind("<ButtonRelease-1>", self.on_release)
+        c.bind("<Double-Button-1>", self.on_double)
         c.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
         threading.Thread(target=self.poll, daemon=True).start()
         self.tick()
@@ -205,9 +234,83 @@ class Nova:  # pragma: no cover - needs a desktop session
     def on_release(self, e) -> None:
         if self.dragged:
             save_settings({"x": self.root.winfo_x(), "y": self.root.winfo_y()})
-        else:
-            self.open(hud=True)
+        elif self._click_job is None:   # wait a moment: a double-click opens the command box instead
+            self._click_job = self.root.after(260, self._single_click)
         self.press, self.dragged = None, False
+
+    def _single_click(self) -> None:
+        self._click_job = None
+        self.open(hud=True)
+
+    def on_double(self, e) -> None:
+        if self._click_job is not None:
+            self.root.after_cancel(self._click_job)
+            self._click_job = None
+        self.command_box()
+
+    # ---- commands typed to Nova, answers in a speech bubble
+    def _popup(self, width: int, height: int):
+        tk = self.tk
+        w = tk.Toplevel(self.root)
+        w.overrideredirect(True)
+        w.attributes("-topmost", True)
+        x = max(0, self.root.winfo_x() - width + SIZE // 2)
+        y = max(0, self.root.winfo_y() - height - 6)
+        w.geometry(f"+{x}+{y}")
+        return w
+
+    def command_box(self) -> None:
+        tk = self.tk
+        if self.box is not None:
+            self.box.destroy()
+        box = self.box = self._popup(300, 40)
+        frame = tk.Frame(box, bg="#0d1726", highlightbackground=hexc(BLUE), highlightthickness=1)
+        frame.pack()
+        entry = tk.Entry(frame, width=34, bg="#0d1726", fg="white", insertbackground="white", relief="flat",
+                         font=("Segoe UI", 11))
+        entry.pack(padx=8, pady=6)
+        box.after(60, entry.focus_force)   # an undecorated window needs a moment before it can take the keyboard
+
+        def go(_e=None):
+            text = entry.get().strip()
+            box.destroy()
+            self.box = None
+            if text:
+                self.send(text)
+            else:
+                self.open(hud=True)
+        entry.bind("<Return>", go)
+        entry.bind("<Escape>", lambda _e: (box.destroy(), setattr(self, "box", None)))
+
+        def close_if_left():
+            try:
+                focused = self.root.focus_get()
+            except Exception:   # Tk raises for some focused widgets (menus): treat as "elsewhere"
+                focused = None
+            if self.box is box and box.winfo_exists() and focused is None:
+                box.destroy()
+                self.box = None
+        entry.bind("<FocusOut>", lambda _e: self.root.after(300, close_if_left))
+
+    def send(self, text: str) -> None:
+        self.say("…")
+        threading.Thread(target=lambda: self._answer(ask(self.base, text)), daemon=True).start()
+
+    def _answer(self, reply: str) -> None:
+        self.root.after(0, lambda: self.say(reply))
+
+    def say(self, text: str) -> None:
+        tk = self.tk
+        if self.bubble is not None:
+            self.bubble.destroy()
+        short = text if len(text) <= 420 else text[:400].rsplit(" ", 1)[0] + "… (more in the app)"
+        b = self.bubble = self._popup(300, 24 + 18 * (1 + len(short) // 38))
+        lbl = tk.Label(b, text=short, wraplength=280, justify="left", bg="#0d1726", fg="white",
+                       font=("Segoe UI", 10), padx=10, pady=8, highlightbackground=hexc(BLUE), highlightthickness=1)
+        lbl.pack()
+        lbl.bind("<Button-1>", lambda _e: b.destroy())
+        if text != "…":
+            b.after(int(bubble_seconds(text) * 1000), lambda: b.winfo_exists() and b.destroy())
 
     # ---- menu
     def hide_hour(self) -> None:

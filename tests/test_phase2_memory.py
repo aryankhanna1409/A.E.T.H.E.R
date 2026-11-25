@@ -55,5 +55,6 @@ def test_extraction_stores_only_important_items(make_aether):
     assert [t.o for t in a.kg.query("user", "studies_at", None)] == ["dtu"]
     assert a.reminders.open()[0].text == "pay hostel fees"
     assert any("Reminder noted" in n for n in r.notices)
+    before = len(llm.calls)
     r2 = a.handle("lol ok")  # small talk: no extraction call at all
-    assert not any(c[1] and c[1].get("title") == "Extraction" for c in llm.calls[-3:])
+    assert not any(c[1] and c[1].get("title") == "Extraction" for c in llm.calls[before:])

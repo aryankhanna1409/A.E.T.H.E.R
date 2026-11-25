@@ -84,7 +84,12 @@ class ProactiveEngine:
         n = self.ring(now)
         day = now.date().isoformat()
         for r in self.a.reminders.due(now.date()):
-            n += self._queue("reminder", "Reminder", f"{r.text} (due {r.due})", f"reminder:{r.id}:{day}")
+            if r.at:   # a reminder with a time rings like an alarm, at that time, on the day it is due
+                if r.due < day or now.strftime("%H:%M") >= r.at:
+                    n += self._ring_reminder(r, day)
+                continue
+            n += self._queue("reminder", "Reminder", f"{r.text}" + (f" ({r.when_text()})" if r.repeat else f" (due {r.due})"),
+                             f"reminder:{r.id}:{day}")
         if self.cfg.morning_brief and now.time() >= _hm(self.cfg.morning_brief):
             key = f"brief:{day}"
             if not self._exists(key):  # build it (with weather and news) only once a day
@@ -223,6 +228,20 @@ class ProactiveEngine:
                 except Exception:
                     log.exception("timer listener failed")
         return n
+
+    def _ring_reminder(self, r, day: str) -> int:
+        key = f"reminder-at:{r.id}:{day}"
+        if not self._queue("timer", "⏰ " + r.text[:1].upper() + r.text[1:], f"It's {r.at}." + (
+                f" ({r.when_text()})" if r.repeat else ""), key):
+            return 0
+        import types
+        alarm = types.SimpleNamespace(id=r.id, label=r.text, due=time.time(), kind="alarm")
+        for fn in list(self.listeners):
+            try:
+                fn(alarm, r.text)
+            except Exception:
+                log.exception("reminder listener failed")
+        return 1
 
     def _exists(self, key: str) -> bool:
         with self.lock:
