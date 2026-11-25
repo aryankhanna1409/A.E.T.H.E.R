@@ -36,16 +36,52 @@ if (Test-Path .venv\Scripts\python.exe) {
   }
 }
 if (-not (Test-Path .venv\Scripts\python.exe)) { & py "-$PyVer" -m venv .venv }
-.\.venv\Scripts\python -m pip install --upgrade pip
+$Pip = ".\.venv\Scripts\python.exe"
+# From here on, exit codes are checked by hand. ("Stop" would turn harmless pip warnings on stderr into errors.)
+$ErrorActionPreference = "Continue"
+& $Pip -m pip install --upgrade pip
 
-if ($Cuda) {
-  # Prebuilt CUDA 12.4 wheel for NVIDIA GPUs such as the RTX 3050 (no compiler needed).
-  # Needs a recent NVIDIA driver (550 or newer): update it from the NVIDIA app if the GPU is not used.
-  .\.venv\Scripts\pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
-} else {
-  .\.venv\Scripts\pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+# 1. Everything except the model runner. This never needs a compiler, and a model-runner problem can't block it.
+Write-Host "`nInstalling AETHER and its packages..." -ForegroundColor Cyan
+& $Pip -m pip install -e ".[all]" huggingface_hub
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "Installing the packages failed (see the error above). Check your internet connection and run this script again." -ForegroundColor Red
+  exit 1
 }
-.\.venv\Scripts\pip install -e ".[all]" huggingface_hub
+
+# 2. The model runner (llama-cpp-python) from PREBUILT wheels only. Without --only-binary, pip falls back to
+#    compiling it from source, which needs Visual Studio's C++ tools ("nmake ... not found"). We never do that.
+$Idx = "https://abetlen.github.io/llama-cpp-python/whl"
+$Ver = "0.3.4"  # the newest release with prebuilt Windows wheels for CUDA 12.4 and CPU
+& $Pip -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('llama_cpp') else 1)"
+$have = ($LASTEXITCODE -eq 0)
+function Install-Llama($flavour, $pin) {
+  $spec = if ($pin) { "llama-cpp-python==$Ver" } else { "llama-cpp-python" }
+  Write-Host "Trying the prebuilt $flavour model runner ($spec)..." -ForegroundColor Cyan
+  $extra = if ($have) { @("--force-reinstall", "--no-deps") } else { @() }  # swap a CPU build for a GPU one in place
+  & $Pip -m pip install $spec --only-binary llama-cpp-python --prefer-binary --extra-index-url "$Idx/$flavour" @extra | Out-Host  # Out-Host: keep pip's text out of the return value
+  return ($LASTEXITCODE -eq 0)
+}
+$gpu = $false
+if ($have) {
+  & $Pip -c "import llama_cpp, sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)"
+  $gpu = ($LASTEXITCODE -eq 0)
+}
+$ok = $have -and ($gpu -or -not $Cuda)
+if ($ok) { Write-Host "The model runner is already installed$(if ($gpu) { ' (GPU build)' })." -ForegroundColor Green }
+if (-not $ok -and $Cuda) {
+  # Needs an NVIDIA driver 550 or newer: update it from the NVIDIA app if the GPU isn't used.
+  $ok = (Install-Llama "cu124" $true) -or (Install-Llama "cu124" $false) -or (Install-Llama "cu122" $false)
+  if (-not $ok) {
+    Write-Host "No prebuilt GPU runner fits this PC; using the CPU one (slower, still works)." -ForegroundColor Yellow
+    $ok = $have  # keep the CPU build that is already there
+  }
+}
+if (-not $ok) { $ok = (Install-Llama "cpu" $true) -or (Install-Llama "cpu" $false) }
+if (-not $ok) {
+  Write-Host "`nCouldn't install a prebuilt model runner. Everything else is installed." -ForegroundColor Red
+  Write-Host "Run '.\.venv\Scripts\python scripts\doctor.py' and send its output; the rest of AETHER (and the tests) work without it."
+}
 
 if (-not (Test-Path aether.toml)) { Copy-Item aether.example.toml aether.toml }
 New-Item -ItemType Directory -Force "$env:USERPROFILE\Documents\AETHER\output" | Out-Null

@@ -10,7 +10,6 @@ authors = [{ name = "Aryan" }]
 requires-python = ">=3.11"
 dependencies = [
   "pydantic>=2.6",
-  "llama-cpp-python>=0.3",
   "fastapi>=0.110",
   "python-multipart>=0.0.9",
   "cryptography>=42",
@@ -27,6 +26,9 @@ tray = ["pystray>=0.19", "pillow>=10", "pynput>=1.7", "psutil>=5.9"]
 voice = ["faster-whisper>=1.0", "piper-tts>=1.2", "openwakeword>=0.6", "sounddevice>=0.4", "numpy>=1.26"]
 transformers = ["transformers>=4.44", "torch>=2.3", "accelerate>=0.33"]
 dev = ["pytest>=8"]
+# The model runner. On Windows, scripts\setup_windows.ps1 installs a prebuilt (CUDA or CPU) wheel so no compiler is
+# needed; it is kept out of "all" so a missing wheel can never block the other packages. Elsewhere: pip install -e ".[llm]"
+llm = ["llama-cpp-python>=0.3"]
 all = ["aether[embeddings,documents,computer,voice,tray,dev]"]
 
 [project.scripts]

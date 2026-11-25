@@ -43,7 +43,8 @@ def main() -> int:
     if ".venv" not in sys.prefix:
         line(WARN, "Not running inside .venv", "Use .\\.venv\\Scripts\\python scripts\\doctor.py")
 
-    for mod, why in [("fastapi", "web app"), ("pydantic", "core"), ("cryptography", "encryption")]:
+    for mod, why in [("fastapi", "web app"), ("pydantic", "core"), ("cryptography", "encryption"),
+                     ("huggingface_hub", "model download")]:
         line(OK if has(mod) else BAD, f"{mod} ({why})", "" if has(mod) else "Re-run scripts\\setup_windows.ps1")
 
     if has("llama_cpp"):
@@ -56,7 +57,10 @@ def main() -> int:
         line(OK if gpu else WARN, f"llama-cpp-python {llama_cpp.__version__} ({'GPU build' if gpu else 'CPU only'})",
              "" if gpu else "For the RTX 3050: re-run setup_windows.ps1 with -Cuda, and update the NVIDIA driver (550+)")
     else:
-        line(BAD, "llama-cpp-python is missing", "Re-run scripts\\setup_windows.ps1 -Cuda")
+        line(BAD, "llama-cpp-python (the model runner) is missing",
+             "Install the prebuilt one, no compiler needed:\n            .\\.venv\\Scripts\\pip install llama-cpp-python==0.3.4 "
+             "--only-binary llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124\n"
+             "            (if that fails, the same with /whl/cpu at the end)")
     if shutil.which("nvidia-smi"):
         line(OK, "NVIDIA driver found (nvidia-smi)")
     else:

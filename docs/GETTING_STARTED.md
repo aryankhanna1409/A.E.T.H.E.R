@@ -42,7 +42,7 @@ cd C:\AETHER
 powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -Cuda
 ```
 
-This creates a private Python environment in `C:\AETHER\.venv`, installs everything (GPU build, voice, tray and hotkey included), and creates your settings file `aether.toml`. Leave out `-Cuda` if you have no NVIDIA GPU.
+This creates a private Python environment in `C:\AETHER\.venv`, installs everything (voice, tray and hotkey included), and creates your settings file `aether.toml`. It then installs a **prebuilt** GPU model runner, falling back to the CPU one if needed. You don't need Visual Studio or any compiler. Leave out `-Cuda` if you have no NVIDIA GPU. It's safe to run again at any time: it keeps what's already installed.
 
 ## 4. Download the brain and the voice (one time)
 
@@ -126,7 +126,7 @@ For hands-free "hey Jarvis" voice (wake word, always listening):
 ```powershell
 cd C:\AETHER
 git pull
-.\.venv\Scripts\pip install -e ".[all]"
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -Cuda
 ```
 
 ## If something goes wrong
@@ -134,6 +134,8 @@ git pull
 | Problem | Fix |
 | --- | --- |
 | `py` is not recognized | Reinstall Python 3.11 with "py launcher" and "Add to PATH" ticked, then reopen PowerShell |
+| `nmake` / `CMAKE_C_COMPILER not set` / "Failed building wheel for llama-cpp-python" | An older setup script tried to compile the model runner. Run `git pull`, then run step 3 again. It now only uses prebuilt files |
+| `No module named 'huggingface_hub'` | The package install stopped early. Run `git pull`, then run step 3 again |
 | "running scripts is disabled" | Use the exact command in step 3 (it includes `-ExecutionPolicy Bypass`) |
 | Replies are very slow | Run `doctor.py`. If it says "CPU only", redo step 3 with `-Cuda` and update the NVIDIA driver. Or use `get_model.py small` |
 | "Out of memory" / crash on load | In `aether.toml`, lower `[llm] gpu_layers` (try 16), or run `scripts\tune_gpu.py` |

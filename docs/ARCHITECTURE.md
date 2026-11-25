@@ -55,7 +55,7 @@ tests/             227 tests, no model weights needed
 
 | Purpose | Package | Phase |
 | --- | --- | --- |
-| LLM runtime | llama-cpp-python (CUDA or CPU wheel) | 1 |
+| LLM runtime | llama-cpp-python, prebuilt CUDA 12.4 or CPU wheel only (setup never compiles) | 1 |
 | Config / schemas | pydantic 2 | 1 |
 | UI server | fastapi, uvicorn | 1 |
 | Web research | ddgs, httpx | 1 |
