@@ -217,6 +217,8 @@ class Aether:
         self.tools.register(Tool("what_i_learned", "what AETHER learned about the user this week: facts, corrections, "
                                  "preferences", {}, "memory", lambda: self.learner.report()["text"]))
         self.proactive = ProactiveEngine(self, cfg.proactive)
+        self.tools.register(Tool("deadlines", "deadlines coming up in the next two weeks (calendar, reminders, documents)",
+                                 {}, "calendar", self._deadlines_text))
         self.tools.register(Tool("start_goal", "start a multi-step autonomous task in the background (asks first)",
                                  {"goal": "the objective, with any constraints"}, "autonomy",
                                  lambda goal: self.goals.submit(goal) if self.goals else "No model loaded."))
@@ -736,6 +738,14 @@ class Aether:
 
     # ------------------------------------------------------------------ indexing
     # ------------------------------------------------------------------ conversations
+    def _deadlines_text(self) -> str:
+        from datetime import date as _date
+        items = self.proactive.awareness.upcoming(_date.today(), 14)
+        if not items:
+            return "No deadlines in the next two weeks that I can see (calendar, reminders, indexed documents)."
+        return "\n".join(f"{d.due:%a %d %b}: {d.title}" + ("" if d.source in {"calendar", "reminder"} else f" (from {d.source})")
+                         for d in items)
+
     def new_conversation(self) -> str:
         self.session = uuid.uuid4().hex[:8]
         self.topics = TopicTracker(self.cfg.context.topic_switch_threshold)

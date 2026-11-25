@@ -2,8 +2,9 @@
 
 Triggers are deterministic code (no model needed): due reminders, a morning
 brief, calendar events about to start, an evening review, low battery,
-finished background goals, waiting improvement proposals and a gentle
-check-in after repeated stress signals. Every notification is deduplicated,
+finished background goals, waiting improvement proposals, a gentle
+check-in after repeated stress signals, a break after a long stretch of
+focus and early warnings of deadlines (see awareness.py). Every notification is deduplicated,
 held during quiet hours, rate limited per hour, and never dropped: anything
 held is delivered later. The UI polls /api/notifications; the CLI prints them
 before each prompt.
@@ -53,6 +54,8 @@ class ProactiveEngine:
         from ..metacognition.learning import idle_seconds
         self.idle_probe = idle_seconds   # seconds since the last keyboard or mouse input (None where unknown)
         self.listeners: list = []  # called with each ringing timer, e.g. the voice loop says it out loud
+        from .awareness import Awareness
+        self.awareness = Awareness(aether, cfg)
 
     # ---------------------------------------------------------- policy
     def quiet(self, now: datetime) -> bool:
@@ -98,10 +101,23 @@ class ProactiveEngine:
             n += self._queue("proposal", "Ideas to improve myself",
                              f"{len(waiting)} proposal(s) need your OK: " + "; ".join(p.title for p in waiting[:3]),
                              f"proposals:{day}")
+        n += self._awareness_triggers(now)
         if self.cfg.wellness_checkins and self._stressed_recently(now):
             n += self._queue("checkin", "Checking in",
                              "You've sounded stressed a few times today. Want to take five minutes, or talk it through?",
                              f"checkin:{day}")
+        return n
+
+    def _awareness_triggers(self, now: datetime) -> int:
+        n = 0
+        try:
+            nudge = self.awareness.focus_nudge(now)
+            if nudge:
+                n += self._queue("break", *nudge)
+            for title, body, key in self.awareness.deadline_nudges(now):
+                n += self._queue("deadline", title, body, key)
+        except Exception:
+            log.exception("awareness triggers failed")
         return n
 
     def _calendar_triggers(self, now: datetime, day: str) -> int:
@@ -265,6 +281,9 @@ class ProactiveEngine:
         with self.lock:  # "in 15 minutes" is useless an hour later: stale event alerts expire unseen
             self.db.execute("UPDATE notifications SET dismissed=1 WHERE kind='event' AND delivered IS NULL AND created<?",
                             (now.timestamp() - max(1, self.cfg.event_alert_minutes) * 60,))
+            # a break suggestion held through quiet hours or the hourly limit is stale after 20 minutes
+            self.db.execute("UPDATE notifications SET dismissed=1 WHERE kind='break' AND delivered IS NULL AND created<?",
+                            (now.timestamp() - 1200,))
             self.db.commit()
         with self.lock:  # timers always ring, quiet hours or not
             urgent = self.db.execute("SELECT id, kind, title, body, created FROM notifications WHERE delivered IS NULL "
@@ -278,7 +297,8 @@ class ProactiveEngine:
         room = self.cfg.max_per_hour - self._delivered_last_hour(now)
         if room <= 0:
             return urgent
-        order = ("CASE kind WHEN 'event' THEN 0 WHEN 'battery' THEN 0 WHEN 'reminder' THEN 1 WHEN 'checkin' THEN 2 "
+        order = ("CASE kind WHEN 'event' THEN 0 WHEN 'battery' THEN 0 WHEN 'reminder' THEN 1 WHEN 'deadline' THEN 1 "
+                 "WHEN 'checkin' THEN 2 WHEN 'break' THEN 2 "
                  "WHEN 'goal' THEN 3 ELSE 4 END")
         with self.lock:
             rows = self.db.execute(f"SELECT id, kind, title, body, created FROM notifications WHERE delivered IS NULL "

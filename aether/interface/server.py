@@ -359,6 +359,19 @@ def create_app(config_path: str | None = None) -> FastAPI:
         aether.audit.record("calendar.write", f"{ev.title} @ {ev.start.isoformat()}", True, "added by you in the app")
         return {**ev.as_dict(), "clash": [e.as_dict() for e in clash]}
 
+    @app.get("/api/awareness")
+    def awareness():
+        """Focus right now and the deadlines AETHER has spotted, for the Today view."""
+        from datetime import date as _date
+        aw, cfgp = aether.proactive.awareness, aether.cfg.proactive
+        now = time.time()
+        f = aw.focus
+        return {"focus": {"supported": f.last_active is not None or f.idle_probe() is not None,
+                          "minutes": round(f.minutes(now)), "app": f.main_app(), "break_every": cfgp.focus_break_minutes},
+                "deadlines": [{"title": d.title, "due": d.due.isoformat(), "source": d.source,
+                               "days": (d.due - _date.today()).days} for d in aw.upcoming(_date.today(), 14)],
+                "deadline_nudges": cfgp.deadline_nudges}
+
     @app.get("/api/timers")
     def timers():
         now = time.time()

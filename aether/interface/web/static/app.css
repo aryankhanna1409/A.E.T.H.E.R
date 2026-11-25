@@ -504,3 +504,9 @@ pre.out { white-space: pre-wrap; font: 12.5px/1.55 var(--mono); background: var(
 .r-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; } .r-head .muted { font-size: 11.5px; }
 .r-steps { margin: 0; font: 11.5px/1.5 var(--mono); color: var(--muted); white-space: pre-wrap; background: var(--bg2); border-radius: 8px; padding: 8px; }
 .r-new { margin-top: 14px; } .r-new summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+
+.focus-now { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 10px; }
+.focus-now b { font: 600 28px var(--display); }
+.focus-now span { color: var(--muted); }
+.card .bar { height: 6px; border-radius: 999px; background: var(--line2); overflow: hidden; margin-bottom: 8px; }
+.card .bar i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
