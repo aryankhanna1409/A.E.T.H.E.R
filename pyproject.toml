@@ -38,6 +38,7 @@ aether-voice = "aether.speech.voice_loop:main"
 aether-tray = "aether.interface.tray:main"
 aether-nova = "aether.interface.nova:main"
 aether-eval = "aether.evals.scenarios:main"
+aether-bench-symbolic = "aether.evals.symbolic:main"
 
 [tool.setuptools.packages.find]
 include = ["aether*"]

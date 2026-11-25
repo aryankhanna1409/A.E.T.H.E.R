@@ -136,12 +136,15 @@ Structured outputs are enforced with a JSON grammar, so even small models return
 ## Check it on your PC
 
 ```powershell
-.\.venv\Scripts\pytest                       # 276 unit tests, no model needed, about 15 s
+.\.venv\Scripts\pytest                       # 291 unit tests, no model needed, about 25 s
 .\.venv\Scripts\aether-eval                  # 10 end-to-end scenarios with YOUR model, 5-15 min
+.\.venv\Scripts\python -m aether.evals.symbolic   # does the symbolic layer help? plain 7B vs RAG vs AETHER, 30-45 min
 .\.venv\Scripts\python scripts\bench.py      # speed against the performance budget
 ```
 
 `aether-eval` checks routing, fact learning and contradictions, preference enforcement, crisis resources, stress detection, document answers, prompt-injection resistance, topic switching, approval for deletes and the optimizer, all judged by code. It writes `eval_report.json`.
+
+`python -m aether.evals.symbolic` asks your model the same 66 questions three ways: alone, with the usual retrieved notes (RAG), and through the full AETHER pipeline. The questions are about a small synthetic world (three families, their homes, jobs, studies, projects and allergies, some of which changed), so the run is the same every time and nothing personal is involved. It measures recall, multi-hop answers that need rules, updated facts, questions it cannot know, false premises and consistency across paraphrases, all scored by code, plus a hallucination rate. Open `bench_symbolic\report.html` for the charts and every answer. Add `--limit 3` for a five-minute look.
 
 ## Safety model
 

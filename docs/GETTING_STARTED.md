@@ -165,6 +165,7 @@ Everything it adds is marked as seeded, and running it again adds nothing twice.
 ```powershell
 .\.venv\Scripts\pytest                        # about 230 checks, no model needed, ~15 s
 .\.venv\Scripts\aether-eval                   # 10 real conversations with your model
+.\.venv\Scripts\python -m aether.evals.symbolic  # plain 7B vs RAG vs AETHER: charts in bench_symbolic\report.html
 .\.venv\Scripts\python scripts\bench.py       # speed: time to first word, tokens per second
 .\.venv\Scripts\python scripts\tune_gpu.py    # finds the best GPU split for your card
 ```

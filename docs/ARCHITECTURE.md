@@ -43,7 +43,7 @@ aether/
   security/        prompt-injection scanner and neutralizer
   speech/          faster-whisper STT, Piper TTS, VAD, wake word, voice loop with barge-in
   perception/      local vision (Qwen2.5-VL via llama.cpp, loaded on demand)
-  evals/           end-to-end scenarios for the real model (aether-eval)
+  evals/           end-to-end scenarios for the real model (aether-eval), symbolic benchmark (aether-bench-symbolic)
   interface/       CLI, FastAPI server (SSE streaming), web app (web/static: app.js, md.js, graph.js, inspector.js, dag.js, hud.js, app.css; no build step, no CDN)
 desktop/           Tauri 2 shell
 installer/         Inno Setup script
