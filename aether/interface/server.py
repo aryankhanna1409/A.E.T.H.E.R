@@ -86,6 +86,16 @@ class ImportSave(BaseModel):
     label: str = ""
 
 
+class CorrectionIn(BaseModel):
+    heard: str
+    meant: str
+
+
+class PresenceIn(BaseModel):
+    state: str
+    seconds: float = 30
+
+
 class Text(BaseModel):
     text: str
 
@@ -134,6 +144,23 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 
+    # What AETHER is doing right now, for Nova (the desktop pet) and other small displays.
+    presence = {"state": "idle", "until": 0.0}
+
+    @app.get("/api/presence")
+    def get_presence():
+        if getattr(aether, "_active_turns", 0) > 0 and presence["state"] not in {"speaking", "listening"}:
+            return {"state": "thinking"}
+        if presence["until"] > time.time():
+            return {"state": presence["state"]}
+        return {"state": "idle"}
+
+    @app.post("/api/presence")
+    def set_presence(body: PresenceIn):
+        state = body.state if body.state in {"idle", "listening", "thinking", "speaking"} else "idle"
+        presence.update(state=state, until=time.time() + max(1.0, min(body.seconds, 600.0)))
+        return {"state": state}
+
     @app.get("/api/status")
     def status():
         return {"model_loaded": aether.llm is not None, "problem": problem,
@@ -144,8 +171,44 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 "write_roots": aether.cfg.security.allowed_write_roots,
                 "network": aether.cfg.security.network}
 
+    # ---------------------------------------------------------------- speech profile (accent learning)
+    heard = {"text": "", "t": 0.0}
+
+    def _profile():
+        if not hasattr(app.state, "speech_profile"):
+            from ..speech.profile import SpeechProfile, terms_from_memories
+            app.state.speech_profile = SpeechProfile.for_home(aether.cfg.home, aether.cfg.user_name,
+                                                              terms_from_memories(aether.store))
+        return app.state.speech_profile
+
+    def _heard(text: str) -> str:
+        heard.update(text=text, t=time.time())
+        return text
+
+    def _maybe_learn(typed: str) -> None:
+        """A typed message right after a voice transcript that is a near-copy of it is a correction."""
+        if heard["text"] and time.time() - heard["t"] < 120:
+            from ..speech.profile import looks_like_correction
+            if looks_like_correction(heard["text"], typed):
+                _profile().learn(heard["text"], typed, confirmed=False)
+            heard["text"] = ""
+
+    @app.get("/api/speech/profile")
+    def speech_profile():
+        p = _profile()
+        return {"prompt": p.prompt(), "hotwords": p.hotwords, "replacements": p.replacements}
+
+    @app.post("/api/speech/correct")
+    def speech_correct(body: CorrectionIn):
+        return {"learnt": _profile().learn(body.heard[:500], body.meant[:500], confirmed=True)}
+
+    @app.delete("/api/speech/replacements")
+    def speech_forget(wrong: str):
+        return {"removed": _profile().forget(wrong)}
+
     @app.post("/api/chat")
     def chat(body: ChatIn):  # sync: runs in a worker thread so approvals can block
+        _maybe_learn(body.text)
         try:
             r = aether.handle(body.text)
         except Exception as e:
@@ -156,6 +219,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.post("/api/chat/stream")
     def chat_stream(body: ChatIn):
         """Server-sent events: stage, tool, token, replace, then done (or error)."""
+        _maybe_learn(body.text)
         import json
         import queue as _q
         q: _q.Queue = _q.Queue()
@@ -664,7 +728,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         if not hasattr(app.state, "stt"):
             try:
                 from ..speech.stt import SpeechToText
-                app.state.stt = SpeechToText(aether.cfg.voice)
+                app.state.stt = SpeechToText(aether.cfg.voice, _profile())
             except Exception as e:
                 raise HTTPException(503, f"Speech-to-text unavailable: {e}")
         return app.state.stt
@@ -676,7 +740,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm", dir=aether.cfg.home) as tmp:
             tmp.write(file.file.read())
         try:
-            return {"text": stt.transcribe(tmp.name)}
+            return {"text": _heard(stt.transcribe(tmp.name))}
         finally:
             Path(tmp.name).unlink(missing_ok=True)
 
@@ -693,16 +757,11 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.post("/api/voice")
     def voice(file: UploadFile = File(...)):
         """Push-to-talk from the UI: audio in, transcript + reply out."""
-        if not hasattr(app.state, "stt"):
-            try:
-                from ..speech.stt import SpeechToText
-                app.state.stt = SpeechToText(aether.cfg.voice)
-            except Exception as e:
-                raise HTTPException(503, f"Speech-to-text unavailable: {e}")
+        _stt()
         import tempfile
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm", dir=aether.cfg.home) as tmp:
             tmp.write(file.file.read())
-        text = app.state.stt.transcribe(tmp.name)
+        text = _heard(app.state.stt.transcribe(tmp.name))
         Path(tmp.name).unlink(missing_ok=True)
         if not text:
             return {"transcript": "", "text": "", "notices": ["I didn't catch that."]}

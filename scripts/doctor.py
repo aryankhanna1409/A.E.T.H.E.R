@@ -132,6 +132,8 @@ def main() -> int:
     tray = [m for m in ("pystray", "PIL", "pynput") if not has(m)]
     line(OK if not tray else WARN, "tray and hotkey" + (f" missing: {', '.join(tray)}" if tray else ""),
          'pip install -e ".[tray]"' if tray else "")
+    line(OK if has("tkinter") else WARN, "Nova, the desktop pet (tkinter)",
+         "" if has("tkinter") else "Re-run the Python 3.11 installer, choose Modify and tick 'tcl/tk and IDLE'")
     line(OK if has("psutil") else WARN, "battery and system status (psutil)", "" if has("psutil") else "pip install psutil")
     line(OK if cfg.online.location else WARN, f"weather location: {cfg.online.location or '(not set)'}",
          "" if cfg.online.location else 'Set [online] location = "Vellore" (or your city) in aether.toml')

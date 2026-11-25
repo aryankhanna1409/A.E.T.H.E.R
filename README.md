@@ -58,6 +58,8 @@ Most assistants are a black box. AETHER records everything it does and lets you 
 * **Routines.** Name a set of steps once ("focus mode": open Spotify, set a stretch reminder) and saying the name runs them instantly, without the model. Every step still goes through the policy engine, asks when it should, and is audited. Make them on the Today page.
 * **Look at my screen.** "What does this error mean?" takes a screenshot, asks the local vision model, and deletes the image. Off until you enable screen access, and it asks every time.
 * **Persona.** `persona = "jarvis"` (the default) is understated and anticipates the next step; set `address_as = "sir"` if you want the full effect.
+* **Understands Indian English, and learns your voice.** Whisper is told to expect Indian English plus your name and the names and places from your memories. `scripts/learn_my_voice.py` (20 phrases, 5 minutes) builds a personal correction dictionary and tunes the wake word to you, and every fix you type in the HUD teaches it more. Wake it with "hey Jarvis" or "hey Nova".
+* **Nova, a desktop companion.** A small always-on-top orb with eyes in the corner of the screen: blue when idle, amber when listening or thinking, shifting between the two while AETHER speaks. Click to talk, drag to move, right-click for a menu. Plain Tk, almost no CPU.
 * **Everyday skills, instant.** Timers and alarms that ring even with the app closed ("set a pasta timer for 12 minutes", "wake me up at 6:30"), volume, mute, play/pause/next, brightness, "play lofi on YouTube" (it finds the video and plays it), "open GitHub", "google best laptop under 80k", maths and unit conversions ("15% of 2400", "5 km in miles"), notes ("take a note: ..."), the clipboard ("summarise what I copied", "copy that"), battery and system status, and lock / sleep / shut down (which always ask first). Common phrasings run in milliseconds without the model, and each one is still a policy-checked tool. They come from the features that home-built Jarvis projects on YouTube and GitHub keep implementing.
 * **"Hey Jarvis, good morning."** You get a spoken briefing: the weather where you are, your first event and when you're done, what's due or overdue, email from people who matter, what AETHER is still working on, and three headlines. Code puts it together from what AETHER already knows, so it's instant, works without the model, and never makes anything up. The first greeting of the morning triggers it too. It's also on the Today page ("Hear it"), on the HUD's ☀ button, in the tray menu, and in the morning notification.
 * **It goes online for live information.** The `weather` (Open-Meteo) and `news` (RSS feeds you choose, or Google News for a topic) tools need no accounts or API keys, and web search and page reading were already there. Only the place name or search topic leaves your PC, never your memories or files. Everything fetched counts as untrusted, and `security.network = false` makes AETHER fully offline again. Set `online.location` for weather.
@@ -134,7 +136,7 @@ Structured outputs are enforced with a JSON grammar, so even small models return
 ## Check it on your PC
 
 ```powershell
-.\.venv\Scripts\pytest                       # 254 unit tests, no model needed, about 15 s
+.\.venv\Scripts\pytest                       # 276 unit tests, no model needed, about 15 s
 .\.venv\Scripts\aether-eval                  # 10 end-to-end scenarios with YOUR model, 5-15 min
 .\.venv\Scripts\python scripts\bench.py      # speed against the performance budget
 ```

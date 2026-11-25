@@ -143,12 +143,21 @@ class SecurityConfig(BaseModel):
 
 class VoiceConfig(BaseModel):
     # Speech runs on the CPU so the 4 GB GPU stays free for the LLM.
+    # small.en with the prompt, hotwords and your speech profile handles Indian English well on the CPU (~1 s).
+    # medium.en is more accurate on strong accents but takes ~3 s per sentence on a Ryzen 5 5600H.
+    # (On the GPU Whisper would need ~1 GB of VRAM that the 7B model is already using.)
     stt_model: str = "small.en"  # faster-whisper: tiny.en | base.en | small.en | medium.en
     stt_device: str = "cpu"
     stt_compute_type: str = "int8"
+    stt_beam_size: int = 5        # beam search: slower than greedy but much better on accents
+    stt_prompt: str = ""          # extra context for Whisper, e.g. "Robotics student. Terms: ROS 2, Nav2, SLAM."
     tts_voice_path: str = ""  # Piper voice .onnx, e.g. en_GB-alan-medium.onnx (see README)
     wake_word: str = "hey_jarvis"  # openWakeWord built-in model name, or a path to your own .onnx
     wake_threshold: float = 0.5
+    wake_verifier_path: str = ""   # made by scripts/learn_my_voice.py: tunes "hey Jarvis" to your voice
+    # Say the assistant's name instead: short phrases are checked with a tiny Whisper model ("hey Nova").
+    wake_by_name: bool = True
+    wake_stt_model: str = "tiny.en"
     silence_ms: int = 900  # end of utterance after this much silence
     vad_energy: float = 0.012  # RMS level that counts as speech; raise in noisy rooms
     barge_in: bool = True  # interrupt AETHER by speaking while it talks
