@@ -138,8 +138,17 @@ class VoiceAssistant:
             elif not self.seg.started and self.follow_up_until and time.time() > self.follow_up_until:
                 self.state, self.follow_up_until = "idle", 0.0
 
+    def ring(self, timer, title: str) -> None:
+        """A timer or alarm went off: say it, unless AETHER is in the middle of a sentence."""
+        what = timer.label or ("your alarm" if timer.kind == "alarm" else "your timer")
+        line = f"{what[:1].upper() + what[1:]}: time's up." if timer.kind == "timer" else f"It's time. {what[:1].upper() + what[1:]}."
+        threading.Thread(target=self.tts.say, args=(line,), daemon=True).start()
+
     def run(self) -> None:
         import sounddevice as sd
+        proactive = getattr(self.aether, "proactive", None)
+        if proactive is not None and self.ring not in proactive.listeners:
+            proactive.listeners.append(self.ring)
         block = int(self.cfg.sample_rate * FRAME_MS / 1000)
         print("Voice ready. Say the wake word to start (Ctrl+C to quit).")
         with sd.InputStream(samplerate=self.cfg.sample_rate, channels=1, dtype="float32", blocksize=block,

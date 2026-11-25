@@ -113,7 +113,23 @@ function notify(title, body) {
 async function pollNotifications() {
   try {
     const r = await api("/api/notifications");
-    for (const n of r.items) { toast(n.title, n.body, "proactive", 15000); if (document.hidden) notify("AETHER · " + n.title, n.body); }
+    for (const n of r.items) {
+      if (n.kind === "timer") chime();
+      toast(n.title, n.body, "proactive", n.kind === "timer" ? 60000 : 15000);
+      if (document.hidden) notify("AETHER · " + n.title, n.body);
+    }
+  } catch {}
+}
+
+// A soft three-note chime for timers and alarms, made with WebAudio (no sound files to ship).
+function chime() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [880, 1175, 1568].forEach((f, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + i * 0.22;
+      o.frequency.value = f; o.type = "sine"; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.25, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.9); o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + 1);
+    });
   } catch {}
 }
 
@@ -441,16 +457,22 @@ RENDER.today = async (p) => {
       <div class="card stat"><b>${m.turns || 0}</b><span>messages this week</span></div>
       <div class="card stat"><b>${waiting.length}</b><span>improvements waiting for you</span></div>
     </div>
+    <div class="card" id="sched" style="margin-bottom:16px"></div>
     <div class="grid two">
-      <div class="card"><h3>Brief</h3><div class="md">${markdown(b.text)}</div></div>
+      <div class="card"><h3><span class="grow">Briefing</span><button class="ghost" id="hear">☀ Hear it</button></h3><div class="md" id="brief-text">${markdown(b.text)}</div></div>
       <div class="card"><h3><span class="grow">Reminders</span></h3><div id="rem"></div>
         <div class="row" style="margin-top:12px"><input class="field" id="rem-text" placeholder="Remind me to…" style="flex:2"><input class="field" id="rem-when" placeholder="when (friday, 2026-12-01)" style="flex:1"><button class="ghost" id="rem-add">Add</button></div></div>
       <div class="card"><h3>Goals</h3>${b.goals.map(g => `<div class="item"><div class="grow">${esc(g.text)}<div class="meta">#${g.id}</div></div><span class="chip ${g.status === "done" ? "good" : g.status === "failed" ? "bad" : "accent"}">${g.status}</span></div>`).join("") || `<div class="empty">No goals yet. Ask AETHER to work on something in the background.</div>`}</div>
       <div class="card"><h3>Self-improvement</h3>${waiting.map(x => `<div class="item"><div class="grow">${esc(x.title)}<div class="meta">${esc(x.rationale)}</div></div></div>`).join("") || `<div class="empty">Nothing waiting for your approval.</div>`}
         ${waiting.length ? `<button class="ghost" onclick="location.hash='self'">Review in Self</button>` : ""}</div>
+      <div class="card span2" id="inbox"></div>
       <div class="card span2" id="routines"></div>
     </div>`;
   Routines.render($("#routines", p));
+  Schedule.render($("#sched", p));
+  Inbox.render($("#inbox", p));
+  $("#hear", p).onclick = () => { HUD.open(); HUD.ask("brief me"); };
+  api("/api/briefing").then(x => { const t = $("#brief-text", p); if (t) t.innerHTML = markdown(x.text); }).catch(() => {});  // adds weather and news when online
   const rem = $("#rem", p);
   rem.innerHTML = b.reminders.map(r => `<div class="item"><div class="grow">${esc(r.text)}<div class="meta">due ${esc(r.due)}</div></div><div class="actions"><button class="ghost" data-r="${r.id}" data-s="done">Done</button><button class="icon-btn" data-r="${r.id}" data-s="dismissed" title="Dismiss">✕</button></div></div>`).join("") || `<div class="empty">Nothing due. Say "remind me to…" in chat or add one here.</div>`;
   $$("[data-r]", rem).forEach(x => x.onclick = async () => { await api(`/api/reminders/${x.dataset.r}?status=${x.dataset.s}`, { method: "POST" }); go("today"); });
@@ -460,6 +482,62 @@ RENDER.today = async (p) => {
     go("today");
   };
   $("#plan", p).onclick = () => { go("chat"); Chat.t.value = "Give me a quick plan for today based on my reminders and goals."; Chat.send(); };
+};
+
+// Schedule: the local calendar (.ics files / Outlook on this PC) as a day strip with free time and a now line.
+const Schedule = {
+  async render(box, when = store.get("schedWhen", "today")) {
+    const c = await api(`/api/calendar?when=${encodeURIComponent(when)}`);
+    const hm = s => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
+    const mins = iso => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); };
+    const t = iso => iso.slice(11, 16);
+    const oneDay = new Date(c.end) - new Date(c.start) <= 864e5;
+    const a = hm(c.day_start), z = hm(c.day_end), span = z - a, pct = m => ((Math.min(z, Math.max(a, m)) - a) / span) * 100;
+    const timed = c.events.filter(e => !e.all_day), allDay = c.events.filter(e => e.all_day);
+    const now = new Date(), nowM = now.getHours() * 60 + now.getMinutes();
+    const isToday = c.start.slice(0, 10) === new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+    const hours = []; for (let h = Math.ceil(a / 60); h * 60 <= z; h += 2) hours.push(h);
+    const strip = oneDay ? `<div class="day-strip">
+        ${hours.map(h => `<span class="tick" style="left:${pct(h * 60)}%"><i>${String(h).padStart(2, "0")}</i></span>`).join("")}
+        ${c.free.map(([f, u]) => `<div class="free" style="left:${pct(mins(f))}%;width:${pct(mins(u)) - pct(mins(f))}%" title="free ${t(f)}–${t(u)}"></div>`).join("")}
+        ${timed.map((e, i) => `<div class="ev" style="left:${pct(mins(e.start))}%;width:${Math.max(1.2, pct(mins(e.end)) - pct(mins(e.start)))}%;top:${9 + (i % 2) * 28}px" title="${esc(e.title)} ${t(e.start)}–${t(e.end)}${e.location ? " · " + esc(e.location) : ""}"><b>${esc(e.title)}</b></div>`).join("")}
+        ${isToday && nowM > a && nowM < z ? `<div class="now" style="left:${pct(nowM)}%"></div>` : ""}</div>` : "";
+    const list = c.events.map(e => `<div class="item"><div class="grow">${esc(e.title)}<div class="meta">${oneDay ? "" : new Date(e.start).toLocaleDateString(undefined, { weekday: "short", day: "numeric" }) + " · "}${e.all_day ? "all day" : `${t(e.start)}–${t(e.end)}`}${e.location ? " · " + esc(e.location) : ""}</div></div><span class="chip">${esc(e.source.replace(/\.ics$/, ""))}</span></div>`).join("");
+    box.innerHTML = `<h3><span class="grow">Schedule · ${esc(c.label)}</span>
+        <span class="tabs small" id="sw">${["today", "tomorrow", "this week"].map(w => `<button data-w="${w}" class="${w === when ? "active" : ""}">${w[0].toUpperCase() + w.slice(1)}</button>`).join("")}</span></h3>
+      ${allDay.length ? `<div class="row" style="margin-bottom:8px">${allDay.map(e => `<span class="chip accent">${esc(e.title)}</span>`).join("")}</div>` : ""}
+      ${c.files.length || c.outlook ? `${strip}${c.free.length ? `<div class="muted free-line">Free ${c.free.map(([f, u]) => `${t(f)}–${t(u)}`).join(", ")}</div>` : ""}${list ? `<div class="sched-list">${list}</div>` : `<div class="empty">Nothing on the calendar ${esc(c.label)}.</div>`}`
+        : `<div class="empty">No calendar yet. Export your calendar as <b>.ics</b> (Outlook, Google Calendar, a timetable) into <code>${esc(c.folder)}</code>, or turn on Outlook in settings. It's read on this PC only.</div>`}
+      <div class="row" style="margin-top:12px"><input class="field" id="ev-title" placeholder="Add an event…" style="flex:2"><input class="field" id="ev-when" placeholder="when (friday 3pm)" style="flex:1"><button class="ghost" id="ev-add">Add</button></div>`;
+    $$("#sw button", box).forEach(b => b.onclick = () => { store.set("schedWhen", b.dataset.w); this.render(box, b.dataset.w); });
+    $("#ev-add", box).onclick = async () => {
+      const title = $("#ev-title", box).value.trim(); if (!title) return;
+      try {
+        const r = await api("/api/calendar", { method: "POST", body: { title, when: $("#ev-when", box).value.trim() || "today 9am" } });
+        toast("Added to your calendar", `${r.title} · ${r.start.replace("T", " ")}${r.clash.length ? ` · overlaps ${r.clash.map(x => x.title).join(", ")}` : ""}`, r.clash.length ? "error" : "");
+      } catch (e) { toast("Couldn't add", e.message, "error"); }
+      this.render(box, when);
+    };
+  },
+};
+
+// Inbox: mail already on this PC (.eml / .mbox / Outlook), read-only. "Draft reply" asks AETHER in chat.
+const Inbox = {
+  async render(box, q = "") {
+    const m = await api(`/api/mail?days=3&q=${encodeURIComponent(q)}`);
+    const rows = m.items.map(x => `<div class="item mail"><div class="grow"><div class="mail-top">${x.vip ? `<span class="chip accent">★</span>` : ""}<b>${esc(x.sender)}</b><span class="muted">${ago(new Date(x.date).getTime() / 1000)}</span></div>
+        <div>${esc(x.subject || "(no subject)")}</div><div class="meta mail-snip">${esc(x.snippet.slice(0, 160))}</div></div>
+        <div class="actions"><button class="ghost" data-reply="${esc(x.id)}">Draft reply</button></div></div>`).join("");
+    box.innerHTML = `<h3><span class="grow">Inbox</span><input class="field" id="mail-q" placeholder="Search mail…" value="${esc(q)}" style="max-width:220px"></h3>
+      ${m.files || m.outlook ? rows || `<div class="empty">${q ? "No mail matches." : "No new mail in the last 3 days."}</div>`
+        : `<div class="empty">No mail connected. Put <b>.eml</b> files or an <b>.mbox</b> archive in <code>${esc(m.folder)}</code>, or turn on Outlook in settings. Read-only, and AETHER never sends mail.</div>`}`;
+    const input = $("#mail-q", box);
+    input.onkeydown = e => { if (e.key === "Enter") this.render(box, input.value.trim()); };
+    $$("[data-reply]", box).forEach(b => b.onclick = () => {
+      const x = m.items.find(i => i.id === b.dataset.reply);
+      go("chat"); Chat.t.value = `Draft a short reply to ${x.sender} <${x.address}> about "${x.subject}". Use the draft_email tool.`; Chat.send();
+    });
+  },
 };
 
 // Routines: one-line voice macros ("focus mode"). Saying the name runs the steps; every step is still policy-checked.
@@ -699,6 +777,7 @@ const COMMANDS = [
   ["New chat", "Start a fresh conversation", "plus", () => { go("chat"); Chat.newChat(); }],
   ...Object.entries(VIEWS).map(([k, v]) => [`Go to ${v}`, "", { chat: "chat", today: "sun", memory: "brain", knowledge: "graph", goals: "target", lab: "flask", self: "pulse", activity: "shield", settings: "gear" }[k], () => go(k)]),
   ["HUD mode", "Full-screen voice interface (Ctrl+Shift+H)", "orb", () => HUD.open()],
+  ["Morning briefing", "Weather, calendar, what's due, email and headlines, read aloud", "sun", () => { HUD.open(); HUD.ask("brief me"); }],
   ["What's on my screen?", "Look at the screen with the local vision model (asks first)", "scan", () => { go("chat"); Chat.t.value = "Look at my screen. What's on it, and is there anything I should know?"; Chat.send(); }],
   ["Inspect the last turn", "Glass-box trace: timeline, retrieval, proofs, verification", "scan", () => Inspector.open()],
   ["Toggle thinking panel", "Show or hide the live pipeline", "panel", () => { S.showMind = !S.showMind; store.set("showMind", S.showMind); Chat.root && Chat.applyLayout(); }],
@@ -768,7 +847,11 @@ window.addEventListener("hashchange", () => { const v = location.hash.slice(1); 
 Inspector.init(api);
 HUD.init({ api, streamChat, onTurn: () => { refreshStatus(); Chat.root && Chat.loadConvos(); } });
 $("#hud-btn").onclick = () => HUD.open();
+if (new URLSearchParams(location.search).has("hud")) {  // the tray's global hotkey / "Morning briefing" menu item
+  const brief = new URLSearchParams(location.search).get("hud") === "brief";
+  history.replaceState(null, "", "/" + location.hash); HUD.open(); if (brief) HUD.ask("good morning");
+}  // the tray's global hotkey
 go(VIEWS[location.hash.slice(1)] ? location.hash.slice(1) : "chat");
 refreshStatus(); setInterval(refreshStatus, 10000);
 setInterval(pollPending, 700);
-pollNotifications(); setInterval(pollNotifications, 30000);
+pollNotifications(); setInterval(pollNotifications, 5000);  // local and cheap; timers should ring on time

@@ -69,13 +69,54 @@ class ProactiveConfig(BaseModel):
     morning_brief: str = "08:30"  # empty = off
     wellness_checkins: bool = True
     check_interval_s: int = 60
+    event_alert_minutes: int = 15  # "Lecture in 15 minutes, Room 4" (0 = off)
+    evening_review: str = "20:00"  # what's still open today + tomorrow's first event ("" = off)
+    low_battery: int = 20  # warn when on battery and at or below this percent (0 = off)
+
+
+class OnlineConfig(BaseModel):
+    # Live information with no accounts or API keys. Only the place name / topic leaves the PC.
+    # The whole thing follows security.network: turn that off and AETHER is fully offline again.
+    location: str = ""  # e.g. "Vellore" or "Vellore, India" or "12.97,79.16"; used for weather
+    news_feeds: list[str] = Field(default_factory=lambda: [
+        "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://www.thehindu.com/news/national/feeder/default.rss",
+        "https://feeds.arstechnica.com/arstechnica/index",
+    ])
+    news_region: str = "IN"  # for topic searches ("news about robotics")
+    briefing_headlines: int = 3
+
+
+class BriefingConfig(BaseModel):
+    on_first_greeting: bool = True  # the first "hey jarvis" / "good morning" of the morning gives the briefing
+    window_start: str = "04:30"  # "morning" for the greeting trigger
+    window_end: str = "12:00"
+
+
+class MailConfig(BaseModel):
+    # Folders of .eml files or .mbox archives already on this PC (Outlook: drag mail into the folder;
+    # Thunderbird: its profile's Mail folder; Gmail: Google Takeout). Read-only; nothing is fetched or sent.
+    paths: list[str] = Field(default_factory=lambda: [str(Path.home() / "Documents" / "AETHER" / "mail")])
+    outlook: bool = False  # also read the classic Outlook desktop app's inbox on this PC (needs pywin32)
+    drafts: str = ""  # where reply drafts go; empty = a "drafts" folder inside the first mail folder
+    vip: list[str] = Field(default_factory=list)  # names or addresses whose new mail is worth a notification
+
+
+class CalendarConfig(BaseModel):
+    # Folders or .ics files exported from Outlook, Google Calendar, Apple Calendar, a timetable...
+    # Read locally; nothing is synced online. Events AETHER adds go to aether.ics in the first folder.
+    ics_paths: list[str] = Field(default_factory=lambda: [str(Path.home() / "Documents" / "AETHER" / "calendar")])
+    outlook: bool = False  # also read the classic Outlook desktop app on this PC (needs pywin32)
+    day_start: str = "09:00"  # for finding free time
+    day_end: str = "21:00"
 
 
 class SecurityConfig(BaseModel):
     encrypt_at_rest: bool = True  # memories + conversation logs; key wrapped with Windows DPAPI
     allowed_read_roots: list[str] = Field(default_factory=lambda: [str(Path.home() / "Documents" / "AETHER")])
     allowed_write_roots: list[str] = Field(default_factory=list)  # empty = read-only to start
-    auto_approve: list[str] = Field(default_factory=lambda: ["fs.read", "fs.list", "fs.search", "web.search", "web.fetch"])
+    auto_approve: list[str] = Field(default_factory=lambda: ["fs.read", "fs.list", "fs.search", "web.search", "web.fetch",
+                                                              "web.open"])
     network: bool = True  # web research on/off
     # Apps AETHER may open: name -> command or full path to the .exe
     apps: dict[str, str] = Field(default_factory=lambda: {
@@ -133,6 +174,10 @@ class Config(BaseModel):
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
+    calendar: CalendarConfig = Field(default_factory=CalendarConfig)
+    mail: MailConfig = Field(default_factory=MailConfig)
+    online: OnlineConfig = Field(default_factory=OnlineConfig)
+    briefing: BriefingConfig = Field(default_factory=BriefingConfig)
     max_plan_steps: int = 8
 
     @property

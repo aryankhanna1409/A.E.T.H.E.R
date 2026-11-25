@@ -2,6 +2,8 @@
 
 **Adaptive Engine for Thought, Heuristics, Evolution & Reasoning**: a fully local, neuro-symbolic personal assistant for Windows 11.
 
+**New here? [Download and run it on your laptop, step by step →](docs/GETTING_STARTED.md)**
+
 No cloud APIs. No Ollama. The language model runs **in-process** through `llama-cpp-python` (GGUF weights on your disk). Embeddings, speech, vision and memory are local too, and your memories live in one encrypted SQLite file on your machine. The only network use is optional web research, which you can switch off.
 
 ## What it does
@@ -56,11 +58,26 @@ Most assistants are a black box. AETHER records everything it does and lets you 
 * **Routines.** Name a set of steps once ("focus mode": open Spotify, set a stretch reminder) and saying the name runs them instantly, without the model. Every step still goes through the policy engine, asks when it should, and is audited. Make them on the Today page.
 * **Look at my screen.** "What does this error mean?" takes a screenshot, asks the local vision model, and deletes the image. Off until you enable screen access, and it asks every time.
 * **Persona.** `persona = "jarvis"` (the default) is understated and anticipates the next step; set `address_as = "sir"` if you want the full effect.
+* **Everyday skills, instant.** Timers and alarms that ring even with the app closed ("set a pasta timer for 12 minutes", "wake me up at 6:30"), volume, mute, play/pause/next, brightness, "play lofi on YouTube" (it finds the video and plays it), "open GitHub", "google best laptop under 80k", maths and unit conversions ("15% of 2400", "5 km in miles"), notes ("take a note: ..."), the clipboard ("summarise what I copied", "copy that"), battery and system status, and lock / sleep / shut down (which always ask first). Common phrasings run in milliseconds without the model, and each one is still a policy-checked tool. They come from the features that home-built Jarvis projects on YouTube and GitHub keep implementing.
+* **"Hey Jarvis, good morning."** You get a spoken briefing: the weather where you are, your first event and when you're done, what's due or overdue, email from people who matter, what AETHER is still working on, and three headlines. Code puts it together from what AETHER already knows, so it's instant, works without the model, and never makes anything up. The first greeting of the morning triggers it too. It's also on the Today page ("Hear it"), on the HUD's ☀ button, in the tray menu, and in the morning notification.
+* **It goes online for live information.** The `weather` (Open-Meteo) and `news` (RSS feeds you choose, or Google News for a topic) tools need no accounts or API keys, and web search and page reading were already there. Only the place name or search topic leaves your PC, never your memories or files. Everything fetched counts as untrusted, and `security.network = false` makes AETHER fully offline again. Set `online.location` for weather.
+* **Your calendar, read locally.** Export your calendar as `.ics` (Outlook, Google Calendar, Apple Calendar or a university timetable) into `Documents\AETHER\calendar`, or turn on `calendar.outlook` to read the classic Outlook app directly. Nothing syncs online. Recurring events, time zones, cancellations and moved occurrences are handled. Ask "what's on friday?" or "put pair study on thursday 4pm", and the Today page shows the day as a strip with your free time and a now line. Today's schedule is in every prompt, so "can I fit the gym in?" just works.
+* **Your email, read locally, never sent.** Point `[mail]` at a folder of `.eml` files or an `.mbox` archive (Outlook drag-and-drop, Thunderbird, Google Takeout), or turn on `mail.outlook` to read the Outlook app's inbox. "Anything from Prof. Rao?" searches it, people on your `vip` list get a notification, and "draft a reply to Riya" writes an unsent `.eml` that Outlook opens ready to edit. You press Send; AETHER has no way to send mail. Email is written by strangers, so everything read from it is untrusted: after reading a suspicious message, every action in that turn asks first.
+* **It speaks first when it matters.** "Linear algebra in 15 minutes, Room 4", an evening review of what's still open plus tomorrow's first event, and a low-battery warning when you're unplugged. Same quiet hours and hourly limit as before, and an event alert nobody saw in time is dropped instead of shown late.
+* **Always one keystroke away.** `aether-tray` sits in the system tray, starts the server, and `Ctrl+Alt+J` from any app opens the voice HUD. Notifications arrive as Windows notifications, and the menu has pause, emergency stop and "start with Windows" (current user only, no admin).
 * **Speed knobs.** `scripts\bench.py` now measures time to the first word, and `--compare-draft` tells you whether prompt-lookup speculative decoding speeds up your machine.
 
 | Routines | A routine run from chat |
 | --- | --- |
 | ![Routines on the Today page](docs/screenshots/routines.png) | ![Routine in chat](docs/screenshots/routine-chat.png) |
+
+![Today's schedule from a local .ics file, with free time and a now line](docs/screenshots/schedule.png)
+
+![Local inbox with VIP senders and one-click reply drafts](docs/screenshots/inbox.png)
+
+| The morning briefing, spoken in the HUD | And on the Today page |
+| --- | --- |
+| ![HUD briefing](docs/screenshots/hud-briefing.png) | ![Briefing card](docs/screenshots/briefing.png) |
 
 ## The app
 
@@ -69,7 +86,7 @@ Most assistants are a black box. AETHER records everything it does and lets you 
 `aether-server` opens a local web app at `http://127.0.0.1:8765` (it never listens beyond your PC and loads nothing from the internet):
 
 * **Chat:** replies stream word by word while the side panel shows each stage live (perceive, interpret, retrieve, reason, act, write, verify), with the facts, tools and corrections behind the answer. Markdown, code with copy buttons, colour-coded citations, 👍/👎, read-aloud, saved conversations with search and pinning, image drop-in and push-to-talk.
-* **Today:** a brief, reminders, goals and anything waiting for your approval.
+* **Today:** your schedule with free time, your inbox, a brief, reminders, goals, routines and anything waiting for your approval.
 * **Memory:** search and forget memories, toggle preferences and see when they changed, confirm or reject patterns AETHER noticed.
 * **Knowledge:** an interactive map of everything AETHER knows, with rule-derived links, proofs ("why?"), logic queries and your own rules.
 * **Mission control, Lab, Self, Activity, Settings:** background agents with a live task graph, the optimization workspace, performance and self-improvement, the full audit log with undo, and safe settings with sliders.
@@ -81,11 +98,13 @@ Most assistants are a black box. AETHER records everything it does and lets you 
 
 ## Setup on Windows 11 (HP Victus 15 defaults)
 
+First time? Follow **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)**: it goes from a fresh laptop to talking to AETHER, with a troubleshooting table. The short version, for people who've done this before:
+
 Requirements: Python 3.11 (from python.org, with the `py` launcher), and for the GPU an NVIDIA driver 550 or newer. The defaults in `aether.example.toml` are tuned for an RTX 3050 Laptop (4 GB), Ryzen 5 5600H and 16 GB RAM.
 
 ```powershell
-git clone https://github.com/aryankhanna1409/A.E.T.H.E.R
-cd A.E.T.H.E.R
+git clone https://github.com/aryankhanna1409/A.E.T.H.E.R C:\AETHER
+cd C:\AETHER
 powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -Cuda   # drop -Cuda for CPU only
 .\.venv\Scripts\python scripts\get_model.py                                # 7B model, ~4.7 GB, one time
 .\.venv\Scripts\python scripts\get_model.py voice                          # optional: speaking voice
@@ -98,6 +117,7 @@ Other ways in:
 
 * `.\.venv\Scripts\aether` for the terminal (type `/help`).
 * `.\.venv\Scripts\aether-voice` for hands-free voice.
+* `.\.venv\Scripts\aether-tray` for the tray icon and the `Ctrl+Alt+J` voice hotkey (`pip install -e ".[tray]"` first).
 * `desktop\` holds a Tauri 2 shell that wraps the UI as a native window (see `desktop\README.md`).
 * `scripts\build_installer.ps1` builds a one-click `AETHER-Setup.exe` with Inno Setup.
 
@@ -114,7 +134,7 @@ Structured outputs are enforced with a JSON grammar, so even small models return
 ## Check it on your PC
 
 ```powershell
-.\.venv\Scripts\pytest                       # 136 unit tests, no model needed, about 15 s
+.\.venv\Scripts\pytest                       # 227 unit tests, no model needed, about 15 s
 .\.venv\Scripts\aether-eval                  # 10 end-to-end scenarios with YOUR model, 5-15 min
 .\.venv\Scripts\python scripts\bench.py      # speed against the performance budget
 ```

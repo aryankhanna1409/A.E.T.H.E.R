@@ -57,6 +57,13 @@ class ChatIn(BaseModel):
     voice: bool = False  # the reply will be spoken: keep it short and plain
 
 
+class EventIn(BaseModel):
+    title: str
+    when: str
+    minutes: int = 60
+    location: str = ""
+
+
 class RoutineIn(BaseModel):
     name: str
     steps: str
@@ -250,6 +257,76 @@ def create_app(config_path: str | None = None) -> FastAPI:
         results = aether.routines.run(r, aether.tools)
         return {"text": summary(r, results), "results": [{"tool": x.tool, "ok": x.ok, "decision": x.decision,
                                                            "output": x.output[:300]} for x in results]}
+
+    @app.get("/api/calendar")
+    def calendar(when: str = "today"):
+        from datetime import datetime
+        from ..memory import calendar as cal
+        c, cc = aether.calendar, aether.cfg.calendar
+        start, end, label = cal.resolve_range(when, datetime.now())
+        one_day = (end - start).days <= 1
+        return {"label": label, "start": start.isoformat(), "end": end.isoformat(),
+                "events": [e.as_dict() for e in c.events(start, end)],
+                "free": [[a.isoformat(timespec="minutes"), b.isoformat(timespec="minutes")]
+                         for a, b in (c.free_slots(start.date(), cc.day_start, cc.day_end) if one_day else [])],
+                "day_start": cc.day_start, "day_end": cc.day_end, "files": [f.name for f in c.files()],
+                "folder": str(c.paths[0]) if c.paths else "", "outlook": cc.outlook}
+
+    @app.post("/api/calendar")
+    def add_event(body: EventIn):
+        from datetime import datetime, timedelta
+        from ..memory import calendar as cal
+        start = cal.parse_when(body.when, datetime.now())
+        if start is None:
+            raise HTTPException(400, f"I couldn't tell when '{body.when}' is. Try 'friday 3pm'.")
+        end = start + timedelta(minutes=max(5, min(24 * 60, body.minutes)))
+        clash = aether.calendar.clash(start, end)
+        ev = aether.calendar.add(body.title.strip()[:200] or "(no title)", start, end, body.location.strip()[:200])
+        aether.audit.record("calendar.write", f"{ev.title} @ {ev.start.isoformat()}", True, "added by you in the app")
+        return {**ev.as_dict(), "clash": [e.as_dict() for e in clash]}
+
+    @app.get("/api/timers")
+    def timers():
+        now = time.time()
+        return {"items": [{"id": t.id, "label": t.label, "kind": t.kind, "due": t.due, "left": max(0, t.due - now)}
+                          for t in aether.timers.running()]}
+
+    @app.post("/api/timers")
+    def add_timer(body: Text):
+        r = aether.tools.call("timer", {"duration": body.text})
+        if not r.ok or not r.output.startswith("Timer set"):
+            raise HTTPException(400, r.output)
+        return {"text": r.output}
+
+    @app.delete("/api/timers/{tid}")
+    def cancel_timer(tid: int):
+        aether.timers.finish(tid, "cancelled")
+        return {"ok": True}
+
+    @app.get("/api/briefing")
+    def briefing(online: bool = True):
+        b = aether.briefing(online=online and aether.cfg.security.network)
+        return {"text": b.written, "spoken": b.spoken, "sections": b.sections}
+
+    @app.get("/api/weather")
+    def weather(place: str = ""):
+        try:
+            w = aether.online.weather(place)
+        except (ValueError, PermissionError) as e:
+            raise HTTPException(400, str(e))
+        except Exception as e:
+            raise HTTPException(502, f"Weather service unreachable: {e}")
+        return {"place": w.place, "now": w.now_temp, "summary": w.now_summary, "line": w.line(0),
+                "days": [{"day": d.day.isoformat(), "summary": d.summary, "high": d.high, "low": d.low,
+                          "rain": d.rain_chance} for d in w.days]}
+
+    @app.get("/api/mail")
+    def mail(q: str = "", days: float = 3, limit: int = 12):
+        from ..memory.mail import is_vip
+        box, vip = aether.mail, set(aether.cfg.mail.vip)
+        items = box.search(q, limit) if q.strip() else box.recent(days, limit)
+        return {"items": [{**m.as_dict(), "vip": is_vip(m, vip)} for m in items], "files": len(box.files()),
+                "folder": str(box.paths[0]) if box.paths else "", "outlook": aether.cfg.mail.outlook}
 
     @app.get("/api/kg/history")
     def kg_history(entity: str | None = None, limit: int = 400):

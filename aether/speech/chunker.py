@@ -14,7 +14,9 @@ from .tts import speakable
 
 # A sentence ends at . ! ? or … followed by whitespace (so 3.5 and e.g.x stay intact), or at a blank line.
 # A list item ("2. Gym") is not a sentence end, but the line break before the next item is.
-END = re.compile(r"(?<!\n\d)(?<!\n\d\d)(?<!^\d)[.!?…][\"')\]]*\s+|\n\s*\n|\n(?=\s*(?:[-*•]|\d+[.)])\s)")
+# Titles and common abbreviations ("Prof. Rao", "e.g. this") are not sentence ends either.
+ABBR = r"(?<!\bMr)(?<!\bMs)(?<!\bDr)(?<!\bSt)(?<!\bSr)(?<!\bJr)(?<!\bvs)(?<!\bMrs)(?<!\bProf)(?<!\be\.g)(?<!\bi\.e)(?<!\betc)"
+END = re.compile(r"(?<!\n\d)(?<!\n\d\d)(?<!^\d)(?:" + ABBR + r"\.|[!?…])[\"')\]]*\s+|\n\s*\n|\n(?=\s*(?:[-*•]|\d+[.)])\s)")
 TABLE_LINE = re.compile(r"^\s*\|.*$", re.M)
 
 

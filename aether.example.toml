@@ -55,14 +55,14 @@ spotify = "spotify.exe"
 
 [voice]                          # run: aether-voice   (all on the CPU; the GPU stays with the LLM)
 stt_model = "small.en"           # base.en is faster, medium.en more accurate
-tts_voice_path = "C:/AETHER/voices/en_GB-alan-medium.onnx"
+tts_voice_path = "C:/AETHER/models/voices/en/en_GB/alan/medium/en_GB-alan-medium.onnx"   # from get_model.py voice
 wake_word = "hey_jarvis"
 vad_energy = 0.012               # raise if background noise triggers it
 barge_in = true
 
 [vision]                         # optional: understand screenshots and images (loaded only when used)
-model_path = ""                  # e.g. C:/AETHER/models/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf
-mmproj_path = ""                 # e.g. C:/AETHER/models/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf
+model_path = ""                  # e.g. C:/AETHER/models/vision/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf
+mmproj_path = ""                 # e.g. C:/AETHER/models/vision/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf
 handler = "qwen25vl"
 gpu_layers = 0
 
@@ -73,3 +73,31 @@ quiet_end = "07:30"
 max_per_hour = 3
 morning_brief = "08:30"          # "" to turn off
 wellness_checkins = true
+event_alert_minutes = 15         # "lecture in 15 minutes" (0 = off)
+evening_review = "20:00"         # what's still open + tomorrow's first event ("" = off)
+low_battery = 20                 # warn on battery at or below this percent (0 = off)
+
+[online]
+# Live information with no accounts or API keys. Turn security.network off to go fully offline.
+location = ""                    # e.g. "Vellore" or "Vellore, India": used for weather
+news_feeds = ["https://feeds.bbci.co.uk/news/world/rss.xml", "https://www.thehindu.com/news/national/feeder/default.rss", "https://feeds.arstechnica.com/arstechnica/index"]
+news_region = "IN"
+briefing_headlines = 3
+
+[briefing]
+on_first_greeting = true         # the first "hey jarvis" / "good morning" of the morning gives the briefing
+window_start = "04:30"
+window_end = "12:00"
+
+[mail]
+# .eml files or .mbox archives already on this PC (Outlook: drag mail here; Thunderbird: its Mail folder; Gmail: Google Takeout).
+paths = ["~/Documents/AETHER/mail"]
+outlook = false                  # also read the Outlook desktop app's inbox (pip install pywin32)
+vip = []                         # e.g. ["riya", "rao@uni.example"]: new mail from them is a notification
+
+[calendar]
+# Export .ics files (Outlook: File > Save Calendar; Google Calendar: Settings > Import & export) into this folder.
+ics_paths = ["~/Documents/AETHER/calendar"]
+outlook = false                  # also read the classic Outlook desktop app on this PC (pip install pywin32)
+day_start = "09:00"              # for finding free time
+day_end = "21:00"
