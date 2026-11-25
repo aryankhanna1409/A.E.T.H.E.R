@@ -453,7 +453,7 @@ RENDER.today = async (p) => {
       <button class="primary" id="plan">Plan my day with AETHER</button></div>
     <div class="grid three" style="margin-bottom:16px">
       <div class="card stat"><b>${b.reminders.length}</b><span>open reminders</span></div>
-      <div class="card stat"><b>${b.goals.filter(g => ["running", "pending"].includes(g.status)).length}</b><span>goals in progress</span></div>
+      <div class="card stat"><b>${b.goals.filter(g => ["running", "pending", "active"].includes(g.status)).length}</b><span>goals in progress</span></div>
       <div class="card stat"><b>${m.turns || 0}</b><span>messages this week</span></div>
       <div class="card stat"><b>${waiting.length}</b><span>improvements waiting for you</span></div>
     </div>
@@ -804,8 +804,107 @@ RENDER.goals = async (p, sel) => {
     if (running) S.poll = setInterval(() => detail(gid), 1500);
   };
   $$("[data-g]", p).forEach(x => x.onclick = () => detail(x.dataset.g));
-  const auto = sel || goals.find(g => ["running", "pending"].includes(g.status))?.id || goals[0]?.id;
+  const auto = sel || goals.find(g => ["running", "pending", "active"].includes(g.status))?.id || goals[0]?.id;
   if (auto) detail(auto);
+};
+
+RENDER.lab = async (p) => {
+  const [cases, overrides] = await Promise.all([api("/api/eval"), api("/api/settings")]);
+  p.innerHTML = `<div class="page-head"><div class="grow"><h1>Lab</h1><p>Metaheuristic optimization and AETHER's self-tuning.</p></div></div>
+    <div class="grid two"><div class="card"><h3>Optimization workspace</h3>
+      <textarea class="field mono" id="ot" rows="4" placeholder="essay:3:5:Wed; gym:1:3:Sun; slides:2:4:Fri&#10;(name:hours:priority 1-5:deadline day)">essay:3:5:Wed; gym:1:3:Sun; slides:2:4:Fri; reading:2:2:Sun; taxes:2:4:Thu</textarea>
+      <div class="row" style="margin-top:10px"><input class="field" id="oh" value="4,4,4,4,4,6,6" title="Hours available per day, Mon to Sun" style="flex:1">
+        <select class="field" id="oa" style="flex:1"><option value="auto">Best plan (GA vs annealing)</option><option value="pareto">Trade-offs (NSGA-II)</option><option value="tabu">Tabu search</option><option value="exact">Exact solver</option></select>
+        <button class="primary" id="orun">Optimize</button></div><pre class="out" id="oout" hidden></pre></div>
+    <div class="card"><h3>Retrieval self-tuning</h3><p class="muted" style="margin-top:-4px;font-size:13px">Add messages and the memory that should come back (leave it empty for "nothing"). Particle swarm then searches for better search settings, and you approve the result.</p>
+      <input class="field" id="eq" placeholder="message, e.g. why does my flask app crash"><input class="field" id="ee" placeholder="memory text that should come back (empty = nothing)" style="margin-top:8px">
+      <div class="row" style="margin-top:10px"><button class="ghost" id="eadd">Add case</button><button class="primary" id="tune">Tune retrieval</button></div><pre class="out" id="tout" hidden></pre>
+      ${cases.map(c => `<div class="item"><div class="grow">${esc(c.query)}<div class="meta">expect: ${esc(c.expect || "nothing")}</div></div><div class="actions"><button class="icon-btn" data-e="${c.id}">${icon("trash")}</button></div></div>`).join("")}</div>
+    <div class="card"><h3>Learned settings</h3>${overrides.map(o => `<div class="item"><div class="grow mono" style="font-size:12.5px">${esc(o.section)}.${esc(o.key)} = ${esc(o.value)}<div class="meta">was ${esc(o.previous)} · ${esc(o.reason)}</div></div><button class="ghost" data-rs="${esc(o.section)}" data-rk="${esc(o.key)}">Revert</button></div>`).join("") || `<div class="empty">None. aether.toml values are in use.</div>`}</div></div>`;
+  $("#orun", p).onclick = async () => { const o = $("#oout", p); o.hidden = false; o.textContent = "Running…"; try { const r = await api("/api/optimize", { method: "POST", body: { tasks: $("#ot", p).value, hours_per_day: $("#oh", p).value, algorithm: $("#oa", p).value } }); o.textContent = r.text; } catch (e) { o.textContent = e.message; } };
+  $("#eadd", p).onclick = async () => { if (!$("#eq", p).value.trim()) return; await api("/api/eval", { method: "POST", body: { query: $("#eq", p).value, expect: $("#ee", p).value } }); RENDER.lab(p); };
+  $("#tune", p).onclick = async () => {
+    const o = $("#tout", p); o.hidden = false; o.textContent = "Tuning…";
+    try { const r = await api("/api/tune", { method: "POST" });
+      o.textContent = `F1 ${r.f1_before} → ${r.f1_after} on ${r.cases} cases\nproposed ${JSON.stringify(r.proposed)}`;
+      if (r.worth_applying && confirm("Apply the proposed retrieval settings?")) { await api("/api/settings", { method: "POST", body: { section: "memory", values: r.proposed, reason: `PSO tuning F1 ${r.f1_before}->${r.f1_after}` } }); RENDER.lab(p); }
+    } catch (e) { o.textContent = e.message; }
+  };
+  $$("[data-e]", p).forEach(b => b.onclick = async () => { await api("/api/eval/" + b.dataset.e, { method: "DELETE" }); RENDER.lab(p); });
+  $$("[data-rs]", p).forEach(b => b.onclick = async () => { await api(`/api/settings/revert?section=${b.dataset.rs}&key=${b.dataset.rk}`, { method: "POST" }); RENDER.lab(p); });
+};
+
+RENDER.self = async (p) => {
+  const [m, props, revs] = await Promise.all([api("/api/metrics"), api("/api/proposals"), api("/api/reviews")]);
+  const bars = (obj) => { const mx = Math.max(1, ...Object.values(obj)); return `<div class="bars">${Object.entries(obj).map(([k, v]) => `<div class="bar"><span>${esc(k || "direct")}</span><span class="track"><i style="width:${v / mx * 100}%"></i></span><span>${v}</span></div>`).join("")}</div>`; };
+  const pct = x => x == null ? "–" : Math.round(x * 100) + "%";
+  p.innerHTML = `<div class="page-head"><div class="grow"><h1>Self</h1><p>How AETHER has been doing over the last 7 days, and what it would change about itself.</p></div></div>
+    ${m.turns ? `<div class="grid three" style="margin-bottom:16px">
+      <div class="card stat"><b>${(m.latency_ms.median / 1000).toFixed(1)} s</b><span>median reply · p95 ${(m.latency_ms.p95 / 1000).toFixed(1)} s</span></div>
+      <div class="card stat"><b>${pct(m.tool_success_rate)}</b><span>tool success · ${m.denied_actions} blocked</span></div>
+      <div class="card stat"><b>${pct(m.verifier_revision_rate)}</b><span>answers corrected by the verifier</span></div>
+      <div class="card stat"><b>${m.feedback.positive} / ${m.feedback.negative}</b><span>👍 / 👎 from you</span></div></div>
+      <div class="grid two" style="margin-bottom:16px"><div class="card"><h3>Routes</h3>${bars(m.routes)}</div><div class="card"><h3>What you ask for</h3>${bars(m.intents)}</div></div>`
+      : `<div class="card empty" style="margin-bottom:16px">No turns measured yet. Chat for a while and this fills in.</div>`}
+    <div class="grid two"><div class="card"><h3>Proposals</h3>${props.filter(x => x.status === "proposed").map(x => `<div class="item"><div class="grow"><b style="font-weight:600">${esc(x.title)}</b><div class="meta">${esc(x.rationale)}</div></div>
+        <div class="row"><button class="primary" data-p="${x.id}" data-a="true">Approve</button><button class="ghost" data-p="${x.id}" data-a="false">Decline</button></div></div>`).join("") || `<div class="empty">Nothing to change right now.</div>`}
+      ${props.filter(x => x.status !== "proposed").slice(0, 8).map(x => `<div class="item"><div class="grow muted">${esc(x.title)}</div><span class="chip ${x.status === "applied" ? "good" : ""}">${x.status}</span></div>`).join("")}</div>
+    <div class="card"><h3>Self-reviews of finished goals</h3>${revs.map(r => `<div class="item"><div class="grow">Goal #${r.goal_id} · ${esc(r.status)}<div class="meta">${esc(r.went_well)} ${r.went_wrong && r.went_wrong !== "nothing" ? "· missed: " + esc(r.went_wrong) : ""}${r.lesson ? "<br>Lesson: " + esc(r.lesson) : ""}</div></div><span class="chip accent">${Math.round(r.score * 100)}%</span></div>`).join("") || `<div class="empty">No finished goals yet.</div>`}</div></div>`;
+  $$("[data-p]", p).forEach(b => b.onclick = async () => { try { const r = await api(`/api/proposals/${b.dataset.p}?approve=${b.dataset.a}`, { method: "POST" }); toast(r.message); } catch (e) { toast("Not applied", e.message, "error"); } RENDER.self(p); });
+};
+
+RENDER.activity = async (p) => {
+  const [audit, journal] = await Promise.all([api("/api/audit"), api("/api/journal")]);
+  p.innerHTML = `<div class="page-head"><div class="grow"><h1>Activity</h1><p>Every file, web and app access, every block and every approval. Nothing is hidden.</p></div><input class="field" id="af" placeholder="Filter" style="max-width:240px"></div>
+    <div class="grid two"><div class="card"><h3>Audit log</h3><div id="al"></div></div>
+    <div class="card"><h3><span class="grow">File changes</span><button class="ghost" id="undo">Undo last</button></h3>${journal.map(j => `<div class="item"><div class="grow mono" style="font-size:12px">${esc(j.op)} ${esc(j.src)}${j.dst ? " → " + esc(j.dst) : ""}<div class="meta">${j.undone ? "undone" : ""} ${j.t ? ago(j.t) : ""}</div></div></div>`).join("") || `<div class="empty">No file changes yet.</div>`}</div></div>`;
+  const draw = (f = "") => { $("#al", p).innerHTML = audit.filter(e => !f || JSON.stringify(e).toLowerCase().includes(f.toLowerCase())).slice(0, 150).map(e => `<div class="item"><span class="chip ${e.allowed ? "good" : "bad"}">${e.allowed ? "allowed" : "blocked"}</span><div class="grow">${esc(e.action)}<div class="meta">${esc(e.target)} · ${esc(e.reason)} · ${new Date(e.t * 1000).toLocaleString()}</div></div></div>`).join("") || `<div class="empty">Nothing yet.</div>`; };
+  draw(); $("#af", p).oninput = e => draw(e.target.value);
+  $("#undo", p).onclick = async () => { const r = await api("/api/undo", { method: "POST" }); toast(r.message); RENDER.activity(p); };
+};
+
+RENDER.settings = async (p) => {
+  const c = await api("/api/config");
+  const sliders = [["memory", "hybrid_alpha", "Meaning vs keywords in search", 0, 1, .05, c.memory.hybrid_alpha], ["memory", "rag_min_score", "How relevant a memory must be", .02, .8, .01, c.memory.rag_min_score],
+                   ["memory", "rag_top_k", "Items retrieved per answer", 2, 12, 1, c.memory.rag_top_k], ["llm", "temperature", "Creativity", 0, 1.2, .05, c.temperature],
+                   ["context", "topic_switch_threshold", "Topic switch sensitivity", .02, .4, .01, c.context.topic_switch_threshold]];
+  const tog = (id, on, label, note) => `<div class="item"><button class="switch ${on ? "on" : ""}" id="${id}"></button><div class="grow">${label}<div class="meta">${note}</div></div></div>`;
+  p.innerHTML = `<div class="page-head"><div class="grow"><h1>Settings</h1><p>Safe settings can be changed here. Security and folders live in aether.toml on purpose.</p></div></div>
+    <div class="grid two">
+      <div class="card"><h3>Appearance and voice</h3>
+        ${tog("s-theme", S.theme === "light", "Light theme", "Dark is the default")}
+        ${tog("s-speak", S.autoSpeak, "Read replies aloud", c.voice.tts ? "Uses your Piper voice" : "Set [voice].tts_voice_path first")}
+        ${tog("s-mind", S.showMind, "Show the thinking panel in chat", "Live pipeline, facts, tools")}
+        ${tog("s-notif", window.Notification && Notification.permission === "granted", "Desktop notifications", "For reminders and approvals while AETHER is in the background")}</div>
+      <div class="card"><h3>Behaviour</h3>${sliders.map(([sec, key, label, mn, mx, st, v]) => `<div style="padding:8px 0"><div class="kv"><span>${label}</span><span class="mono" id="v-${key}">${v}</span></div>
+        <input type="range" min="${mn}" max="${mx}" step="${st}" value="${v}" data-sec="${sec}" data-key="${key}" style="width:100%;accent-color:var(--accent)"></div>`).join("")}
+        <p class="muted" style="font-size:12px">Changes are saved as learned overrides and can be reverted in the Lab.</p></div>
+      <div class="card"><h3>Model</h3><div class="kv"><span>File</span><span class="mono">${esc(c.model || "not set")}</span></div><div class="kv"><span>GPU layers</span><span>${c.gpu_layers}</span></div>
+        <div class="kv"><span>Context</span><span>${c.context_tokens} tokens</span></div><div class="kv"><span>Speech-to-text</span><span>${esc(c.voice.stt_model)}</span></div><div class="kv"><span>Vision</span><span>${c.vision ? "configured" : "not set"}</span></div>
+        <p class="muted" style="font-size:12px">Change these in aether.toml, then restart. scripts\\tune_gpu.py finds the fastest GPU layer count.</p></div>
+      <div class="card"><h3>Security</h3>
+        <div class="kv"><span>Encryption at rest</span><span class="${c.security.encrypt_at_rest ? "good" : "warn"}">${c.security.encrypt_at_rest ? "on" : "off"}</span></div>
+        <div class="kv"><span>Web research</span><span>${c.security.network ? "on" : "off"}</span></div>
+        <div class="kv"><span>Screen reading</span><span>${c.security.screen_access ? "on (asks)" : "off"}</span></div>
+        <div class="kv"><span>App control</span><span>${c.security.ui_automation ? "on (asks)" : "off"}</span></div>
+        <div style="margin-top:8px" class="muted">Reads: ${c.security.allowed_read_roots.map(esc).join(", ") || "none"}<br>Writes: ${c.security.allowed_write_roots.map(esc).join(", ") || "none (read-only)"}</div></div>
+      <div class="card"><h3>Proactive</h3><div class="kv"><span>Enabled</span><span>${c.proactive.enabled ? "yes" : "no"}</span></div><div class="kv"><span>Quiet hours</span><span>${c.proactive.quiet_start} to ${c.proactive.quiet_end}</span></div>
+        <div class="kv"><span>Morning brief</span><span>${c.proactive.morning_brief || "off"}</span></div><div class="kv"><span>Max per hour</span><span>${c.proactive.max_per_hour}</span></div></div>
+      <div class="card"><h3>Tools (${c.tools.length})</h3>${c.tools.map(t => `<div class="item"><div class="grow"><span class="mono" style="font-size:12.5px">${esc(t.name)}</span><div class="meta">${esc(t.description)}</div></div><span class="chip">${esc(t.category)}</span></div>`).join("")}</div>
+      <div class="card"><h3>Keyboard</h3>${[["Ctrl K", "Command palette"], ["Ctrl 1-8", "Switch views"], ["Ctrl N", "New chat"], ["Ctrl .", "Toggle thinking panel"], ["Ctrl Shift V", "Talk"], ["Ctrl Shift X", "Emergency stop"], ["/", "Focus the message box"]].map(([k, d]) => `<div class="kv"><span>${d}</span><span><kbd>${k}</kbd></span></div>`).join("")}</div>
+    </div>`;
+  $("#s-theme", p).onclick = e => { S.theme = S.theme === "light" ? "dark" : "light"; store.set("theme", S.theme); document.documentElement.dataset.theme = S.theme; e.target.classList.toggle("on"); };
+  $("#s-speak", p).onclick = e => { S.autoSpeak = !S.autoSpeak; store.set("autoSpeak", S.autoSpeak); e.target.classList.toggle("on"); };
+  $("#s-mind", p).onclick = e => { S.showMind = !S.showMind; store.set("showMind", S.showMind); e.target.classList.toggle("on"); if (Chat.root) Chat.applyLayout(); };
+  $("#s-notif", p).onclick = async e => { if (!window.Notification) return toast("Notifications not supported here"); const r = await Notification.requestPermission(); e.target.classList.toggle("on", r === "granted"); };
+  $$("input[type=range]", p).forEach(r => {
+    r.oninput = () => $("#v-" + r.dataset.key, p).textContent = r.value;
+    r.onchange = async () => {
+      const v = r.dataset.key === "rag_top_k" ? parseInt(r.value) : parseFloat(r.value);
+      try { await api("/api/settings", { method: "POST", body: { section: r.dataset.sec, values: { [r.dataset.key]: v }, reason: "set in Settings" } }); toast("Saved", `${r.dataset.sec}.${r.dataset.key} = ${v}`); }
+      catch (e) { toast("Not saved", e.message, "error"); }
+    };
+  });
 };
 
 // ------------------------------------------------------------------ command palette
