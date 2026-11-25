@@ -54,6 +54,8 @@ def cfg(tmp_path):
     c.security.network = False
     c.calendar.ics_paths = [str(tmp_path / "calendar")]
     c.mail.paths = [str(tmp_path / "mail")]
+    c.briefing.on_first_greeting = False  # tests run at any hour; the greeting trigger is tested with a fixed clock
+    c.online.news_feeds = []  # never touch the network from tests
     return c
 
 

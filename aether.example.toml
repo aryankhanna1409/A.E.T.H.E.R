@@ -77,6 +77,18 @@ event_alert_minutes = 15         # "lecture in 15 minutes" (0 = off)
 evening_review = "20:00"         # what's still open + tomorrow's first event ("" = off)
 low_battery = 20                 # warn on battery at or below this percent (0 = off)
 
+[online]
+# Live information with no accounts or API keys. Turn security.network off to go fully offline.
+location = ""                    # e.g. "Vellore" or "Vellore, India": used for weather
+news_feeds = ["https://feeds.bbci.co.uk/news/world/rss.xml", "https://www.thehindu.com/news/national/feeder/default.rss", "https://feeds.arstechnica.com/arstechnica/index"]
+news_region = "IN"
+briefing_headlines = 3
+
+[briefing]
+on_first_greeting = true         # the first "hey jarvis" / "good morning" of the morning gives the briefing
+window_start = "04:30"
+window_end = "12:00"
+
 [mail]
 # .eml files or .mbox archives already on this PC (Outlook: drag mail here; Thunderbird: its Mail folder; Gmail: Google Takeout).
 paths = ["~/Documents/AETHER/mail"]

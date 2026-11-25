@@ -26,6 +26,8 @@ from ..memory import extraction, lifecycle
 from ..metacognition import Metacognition
 from ..memory import calendar as cal
 from ..memory import mail as mailmod
+from ..proactive import briefing as briefing_mod
+from ..tools.online import Online
 from ..memory.prospective import Reminders
 from ..memory.store import MemoryStore
 from ..neurosymbolic.csp import plan_tool
@@ -177,6 +179,16 @@ class Aether:
                                  "(AETHER never sends mail)", {"to": "address", "subject": "subject",
                                                                "body": "the full text of the email"},
                                  "mail.draft", self._draft_tool))
+        self.online = Online(cfg.online, allowed=lambda: self.cfg.security.network)
+        self.tools.register(Tool("weather", "live weather and forecast (Open-Meteo, no account)",
+                                 {"place": "city, optional (default: your location)", "when": "today or tomorrow"},
+                                 "web.fetch", self._weather_tool))
+        self.tools.register(Tool("news", "latest news headlines, optionally about a topic",
+                                 {"topic": "optional, e.g. 'robotics' or 'India cricket'"}, "web.fetch", self._news_tool))
+        self.tools.register(Tool("briefing", "the user's morning briefing: weather, calendar, what's due, important "
+                                 "email, headlines", {}, "kg", lambda: self.briefing().written))
+        self._last_brief_day = ""
+        self.clock = datetime.now  # swappable in tests
         self.reminders = Reminders(self.db, self.lock)
         self.tools.register(Tool("remind", "set a reminder for the user",
                                  {"text": "what", "when": "e.g. tomorrow, friday, 2026-12-01"}, "memory",
@@ -264,6 +276,33 @@ class Aether:
             to = hits[0].address
         path = self.mail.draft(to.strip(), subject.strip()[:200], body.strip())
         return f"Draft ready for {to}: {path}. Open it to review and press Send yourself; I never send email."
+
+    def _weather_tool(self, place: str = "", when: str = "today") -> str:
+        w = self.online.weather(place)
+        which = 1 if "tomorrow" in (when or "").lower() else 0
+        lines = [w.line(0)] + ([w.line(1)] if which or len(w.days) > 1 else [])
+        return "\n".join(lines) + "\n(Open-Meteo, live)"
+
+    def _news_tool(self, topic: str = "") -> str:
+        items = self.online.headlines(topic, 6)
+        if not items:
+            return "No headlines right now (the feeds didn't answer)."
+        return "\n".join(f"[web {i}] {h.title} ({h.source}{', ' + h.published.strftime('%d %b %H:%M') if h.published else ''})"
+                         f"\nURL: {h.link}" for i, h in enumerate(items, 1))
+
+    def briefing(self, now: datetime | None = None, online: bool | None = None):
+        b = briefing_mod.compose(self, now, online)
+        self._last_brief_day = (now or datetime.now()).date().isoformat()
+        return b
+
+    def _wants_briefing(self, text: str, now: datetime) -> bool:
+        if briefing_mod.is_request(text):
+            return True
+        bc = self.cfg.briefing
+        if not (bc.on_first_greeting and briefing_mod.is_greeting(text)):
+            return False
+        start, end = (datetime.combine(now.date(), datetime.strptime(x, "%H:%M").time()) for x in (bc.window_start, bc.window_end))
+        return start <= now < end and self._last_brief_day != now.date().isoformat()
 
     def today_schedule(self, now: datetime | None = None) -> str:
         now = now or datetime.now()
@@ -371,6 +410,17 @@ class Aether:
             emit_("stage", {"name": "act", "done": True})
             state.tool_log += [f"{r.tool} -> {r.decision}, ok={r.ok}" for r in results]
             return Reply(routine_summary(routine, results), state)
+
+        now = self.clock()
+        if self._wants_briefing(text, now):
+            emit_ = getattr(self, "_emit", lambda kind, data: None)
+            state.intent, state.current_goal, state.route = "briefing", "morning briefing", ["tools"]
+            state.confidence = 1.0
+            emit_("stage", {"name": "act", "label": "Gathering your briefing"})
+            b = self.briefing(now)
+            emit_("stage", {"name": "act", "done": True})
+            state.tool_log.append("briefing -> allow, ok=True")
+            return Reply(b.spoken if getattr(self, "_spoken", False) else b.written, state)
 
         emit = getattr(self, "_emit", lambda kind, data: None)
         # PERCEIVE

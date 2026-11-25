@@ -74,6 +74,25 @@ class ProactiveConfig(BaseModel):
     low_battery: int = 20  # warn when on battery and at or below this percent (0 = off)
 
 
+class OnlineConfig(BaseModel):
+    # Live information with no accounts or API keys. Only the place name / topic leaves the PC.
+    # The whole thing follows security.network: turn that off and AETHER is fully offline again.
+    location: str = ""  # e.g. "Vellore" or "Vellore, India" or "12.97,79.16"; used for weather
+    news_feeds: list[str] = Field(default_factory=lambda: [
+        "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://www.thehindu.com/news/national/feeder/default.rss",
+        "https://feeds.arstechnica.com/arstechnica/index",
+    ])
+    news_region: str = "IN"  # for topic searches ("news about robotics")
+    briefing_headlines: int = 3
+
+
+class BriefingConfig(BaseModel):
+    on_first_greeting: bool = True  # the first "hey jarvis" / "good morning" of the morning gives the briefing
+    window_start: str = "04:30"  # "morning" for the greeting trigger
+    window_end: str = "12:00"
+
+
 class MailConfig(BaseModel):
     # Folders of .eml files or .mbox archives already on this PC (Outlook: drag mail into the folder;
     # Thunderbird: its profile's Mail folder; Gmail: Google Takeout). Read-only; nothing is fetched or sent.
@@ -156,6 +175,8 @@ class Config(BaseModel):
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
     calendar: CalendarConfig = Field(default_factory=CalendarConfig)
     mail: MailConfig = Field(default_factory=MailConfig)
+    online: OnlineConfig = Field(default_factory=OnlineConfig)
+    briefing: BriefingConfig = Field(default_factory=BriefingConfig)
     max_plan_steps: int = 8
 
     @property

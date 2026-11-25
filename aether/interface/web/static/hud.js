@@ -9,7 +9,7 @@ const plain = t => t.replace(/```[\s\S]*?(```|$)/g, " ").replace(/^\s*\|.*\|\s*$
   .replace(/[*_#`]/g, "").replace(/\s+/g, " ").replace(/\s+([.,!?;:])/g, "$1").trim();
 
 // Port of aether/speech/chunker.py: complete sentences out of a token stream, code and tables skipped.
-const END = /(?<!\n\d)(?<!\n\d\d)(?<!^\d)[.!?…]["')\]]*\s+|\n\s*\n|\n(?=\s*(?:[-*•]|\d+[.)])\s)/g;
+const END = /(?<!\n\d)(?<!\n\d\d)(?<!^\d)(?:(?<!\b(?:Mr|Ms|Dr|St|Sr|Jr|vs|Mrs|Prof|e\.g|i\.e|etc))\.|[!?…])["')\]]*\s+|\n\s*\n|\n(?=\s*(?:[-*•]|\d+[.)])\s)/g;
 export class Chunker {
   constructor(min = 24) { this.min = min; this.buf = ""; this.code = false; }
   feed(t) {
@@ -53,13 +53,14 @@ export const HUD = {
     el.innerHTML = `<canvas></canvas>
       <div class="hud-top"><div><b>AETHER</b><span>HUD</span></div><div class="hud-clock"></div><button class="hud-x" title="Exit (Esc)">Esc ✕</button></div>
       <div class="hud-bottom">
-        <div class="hud-stage"><span class="hud-mode">Ready</span><span class="hud-sub">Hold <kbd>Space</kbd> to talk, or type below</span></div>
+        <div class="hud-stage"><span class="hud-mode">Ready</span><span class="hud-sub">Hold <kbd>Space</kbd> to talk, or type below</span><button class="hud-brief" type="button">☀ Brief me</button></div>
         <div class="hud-ticker"><div class="hud-you"></div><div class="hud-ai"></div></div>
         <form class="hud-type"><input placeholder="Type to AETHER and press Enter" autocomplete="off"></form></div>
       <div class="hud-corner tl"></div><div class="hud-corner tr"></div><div class="hud-corner bl"></div><div class="hud-corner br"></div>`;
     document.body.appendChild(el);
     this.cv = el.querySelector("canvas"); this.g = this.cv.getContext("2d");
     el.querySelector(".hud-x").onclick = () => this.close();
+    el.querySelector(".hud-brief").onclick = () => this.ask("brief me");
     el.querySelector("form").onsubmit = e => { e.preventDefault(); const i = el.querySelector("input"); const v = i.value.trim(); if (v) { i.value = ""; i.blur(); this.ask(v); } };
     this.onKey = e => {
       if (e.key === "Escape") { e.preventDefault(); this.close(); return; }

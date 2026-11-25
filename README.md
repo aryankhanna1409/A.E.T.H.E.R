@@ -56,6 +56,8 @@ Most assistants are a black box. AETHER records everything it does and lets you 
 * **Routines.** Name a set of steps once ("focus mode": open Spotify, set a stretch reminder) and saying the name runs them instantly, without the model. Every step still goes through the policy engine, asks when it should, and is audited. Make them on the Today page.
 * **Look at my screen.** "What does this error mean?" takes a screenshot, asks the local vision model, and deletes the image. Off until you enable screen access, and it asks every time.
 * **Persona.** `persona = "jarvis"` (the default) is understated and anticipates the next step; set `address_as = "sir"` if you want the full effect.
+* **"Hey Jarvis, good morning."** You get a spoken briefing: the weather where you are, your first event and when you're done, what's due or overdue, email from people who matter, what AETHER is still working on, and three headlines. Code puts it together from what AETHER already knows, so it's instant, works without the model, and never makes anything up. The first greeting of the morning triggers it too. It's also on the Today page ("Hear it"), on the HUD's ☀ button, in the tray menu, and in the morning notification.
+* **It goes online for live information.** The `weather` (Open-Meteo) and `news` (RSS feeds you choose, or Google News for a topic) tools need no accounts or API keys, and web search and page reading were already there. Only the place name or search topic leaves your PC, never your memories or files. Everything fetched counts as untrusted, and `security.network = false` makes AETHER fully offline again. Set `online.location` for weather.
 * **Your calendar, read locally.** Export your calendar as `.ics` (Outlook, Google Calendar, Apple Calendar or a university timetable) into `Documents\AETHER\calendar`, or turn on `calendar.outlook` to read the classic Outlook app directly. Nothing syncs online. Recurring events, time zones, cancellations and moved occurrences are handled. Ask "what's on friday?" or "put pair study on thursday 4pm", and the Today page shows the day as a strip with your free time and a now line. Today's schedule is in every prompt, so "can I fit the gym in?" just works.
 * **Your email, read locally, never sent.** Point `[mail]` at a folder of `.eml` files or an `.mbox` archive (Outlook drag-and-drop, Thunderbird, Google Takeout), or turn on `mail.outlook` to read the Outlook app's inbox. "Anything from Prof. Rao?" searches it, people on your `vip` list get a notification, and "draft a reply to Riya" writes an unsent `.eml` that Outlook opens ready to edit. You press Send; AETHER has no way to send mail. Email is written by strangers, so everything read from it is untrusted: after reading a suspicious message, every action in that turn asks first.
 * **It speaks first when it matters.** "Linear algebra in 15 minutes, Room 4", an evening review of what's still open plus tomorrow's first event, and a low-battery warning when you're unplugged. Same quiet hours and hourly limit as before, and an event alert nobody saw in time is dropped instead of shown late.
@@ -69,6 +71,10 @@ Most assistants are a black box. AETHER records everything it does and lets you 
 ![Today's schedule from a local .ics file, with free time and a now line](docs/screenshots/schedule.png)
 
 ![Local inbox with VIP senders and one-click reply drafts](docs/screenshots/inbox.png)
+
+| The morning briefing, spoken in the HUD | And on the Today page |
+| --- | --- |
+| ![HUD briefing](docs/screenshots/hud-briefing.png) | ![Briefing card](docs/screenshots/briefing.png) |
 
 ## The app
 
@@ -123,7 +129,7 @@ Structured outputs are enforced with a JSON grammar, so even small models return
 ## Check it on your PC
 
 ```powershell
-.\.venv\Scripts\pytest                       # 158 unit tests, no model needed, about 15 s
+.\.venv\Scripts\pytest                       # 179 unit tests, no model needed, about 15 s
 .\.venv\Scripts\aether-eval                  # 10 end-to-end scenarios with YOUR model, 5-15 min
 .\.venv\Scripts\python scripts\bench.py      # speed against the performance budget
 ```

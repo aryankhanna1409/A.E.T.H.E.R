@@ -443,7 +443,7 @@ RENDER.today = async (p) => {
     </div>
     <div class="card" id="sched" style="margin-bottom:16px"></div>
     <div class="grid two">
-      <div class="card"><h3>Brief</h3><div class="md">${markdown(b.text)}</div></div>
+      <div class="card"><h3><span class="grow">Briefing</span><button class="ghost" id="hear">☀ Hear it</button></h3><div class="md" id="brief-text">${markdown(b.text)}</div></div>
       <div class="card"><h3><span class="grow">Reminders</span></h3><div id="rem"></div>
         <div class="row" style="margin-top:12px"><input class="field" id="rem-text" placeholder="Remind me to…" style="flex:2"><input class="field" id="rem-when" placeholder="when (friday, 2026-12-01)" style="flex:1"><button class="ghost" id="rem-add">Add</button></div></div>
       <div class="card"><h3>Goals</h3>${b.goals.map(g => `<div class="item"><div class="grow">${esc(g.text)}<div class="meta">#${g.id}</div></div><span class="chip ${g.status === "done" ? "good" : g.status === "failed" ? "bad" : "accent"}">${g.status}</span></div>`).join("") || `<div class="empty">No goals yet. Ask AETHER to work on something in the background.</div>`}</div>
@@ -455,6 +455,8 @@ RENDER.today = async (p) => {
   Routines.render($("#routines", p));
   Schedule.render($("#sched", p));
   Inbox.render($("#inbox", p));
+  $("#hear", p).onclick = () => { HUD.open(); HUD.ask("brief me"); };
+  api("/api/briefing").then(x => { const t = $("#brief-text", p); if (t) t.innerHTML = markdown(x.text); }).catch(() => {});  // adds weather and news when online
   const rem = $("#rem", p);
   rem.innerHTML = b.reminders.map(r => `<div class="item"><div class="grow">${esc(r.text)}<div class="meta">due ${esc(r.due)}</div></div><div class="actions"><button class="ghost" data-r="${r.id}" data-s="done">Done</button><button class="icon-btn" data-r="${r.id}" data-s="dismissed" title="Dismiss">✕</button></div></div>`).join("") || `<div class="empty">Nothing due. Say "remind me to…" in chat or add one here.</div>`;
   $$("[data-r]", rem).forEach(x => x.onclick = async () => { await api(`/api/reminders/${x.dataset.r}?status=${x.dataset.s}`, { method: "POST" }); go("today"); });
@@ -759,6 +761,7 @@ const COMMANDS = [
   ["New chat", "Start a fresh conversation", "plus", () => { go("chat"); Chat.newChat(); }],
   ...Object.entries(VIEWS).map(([k, v]) => [`Go to ${v}`, "", { chat: "chat", today: "sun", memory: "brain", knowledge: "graph", goals: "target", lab: "flask", self: "pulse", activity: "shield", settings: "gear" }[k], () => go(k)]),
   ["HUD mode", "Full-screen voice interface (Ctrl+Shift+H)", "orb", () => HUD.open()],
+  ["Morning briefing", "Weather, calendar, what's due, email and headlines, read aloud", "sun", () => { HUD.open(); HUD.ask("brief me"); }],
   ["What's on my screen?", "Look at the screen with the local vision model (asks first)", "scan", () => { go("chat"); Chat.t.value = "Look at my screen. What's on it, and is there anything I should know?"; Chat.send(); }],
   ["Inspect the last turn", "Glass-box trace: timeline, retrieval, proofs, verification", "scan", () => Inspector.open()],
   ["Toggle thinking panel", "Show or hide the live pipeline", "panel", () => { S.showMind = !S.showMind; store.set("showMind", S.showMind); Chat.root && Chat.applyLayout(); }],
@@ -828,7 +831,10 @@ window.addEventListener("hashchange", () => { const v = location.hash.slice(1); 
 Inspector.init(api);
 HUD.init({ api, streamChat, onTurn: () => { refreshStatus(); Chat.root && Chat.loadConvos(); } });
 $("#hud-btn").onclick = () => HUD.open();
-if (new URLSearchParams(location.search).has("hud")) { history.replaceState(null, "", "/" + location.hash); HUD.open(); }  // the tray's global hotkey
+if (new URLSearchParams(location.search).has("hud")) {  // the tray's global hotkey / "Morning briefing" menu item
+  const brief = new URLSearchParams(location.search).get("hud") === "brief";
+  history.replaceState(null, "", "/" + location.hash); HUD.open(); if (brief) HUD.ask("good morning");
+}  // the tray's global hotkey
 go(VIEWS[location.hash.slice(1)] ? location.hash.slice(1) : "chat");
 refreshStatus(); setInterval(refreshStatus, 10000);
 setInterval(pollPending, 700);

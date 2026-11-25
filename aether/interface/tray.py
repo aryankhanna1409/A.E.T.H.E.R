@@ -124,8 +124,8 @@ class Tray:
         return False
 
     # ---- actions
-    def open(self, hud: bool = False) -> None:
-        url = self.base + ("/?hud=1" if hud else "/")
+    def open(self, hud: bool | str = False) -> None:
+        url = self.base + (f"/?hud={'brief' if hud == 'brief' else 1}" if hud else "/")
         cmd = app_window_command(url)
         if cmd:
             subprocess.Popen(cmd)
@@ -205,6 +205,7 @@ class Tray:
         self.icon = pystray.Icon(APP_NAME, make_icon(), f"AETHER  ({self.hotkey.upper()} for voice)", menu(
             item("Open AETHER", lambda: self.open(), default=True),
             item(f"Talk ({self.hotkey})", lambda: self.open(hud=True)),
+            item("Morning briefing", lambda: self.open(hud="brief")),
             menu.SEPARATOR,
             item("Pause notifications", toggle_pause, checked=lambda _: self.paused),
             item("Start with Windows", lambda: self.set_startup(not self.startup_enabled()),

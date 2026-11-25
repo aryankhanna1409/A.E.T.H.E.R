@@ -80,7 +80,9 @@ class ProactiveEngine:
         for r in self.a.reminders.due(now.date()):
             n += self._queue("reminder", "Reminder", f"{r.text} (due {r.due})", f"reminder:{r.id}:{day}")
         if self.cfg.morning_brief and now.time() >= _hm(self.cfg.morning_brief):
-            n += self._queue("brief", "Morning brief", self.brief(now), f"brief:{day}")
+            key = f"brief:{day}"
+            if not self._exists(key):  # build it (with weather and news) only once a day
+                n += self._queue("brief", "Morning brief", self.full_brief(now), key)
         n += self._calendar_triggers(now, day)
         n += self._battery_trigger(now, day)
         n += self._mail_trigger(now)
@@ -162,6 +164,18 @@ class ProactiveEngine:
         return self._queue("battery", f"Battery {pct}%", "You're on battery. Plug in soon, or I'll keep the "
                            "heavy work light." if step == "low" else "Battery is nearly empty. Save your work and plug in.",
                            f"battery:{day}:{step}")
+
+    def _exists(self, key: str) -> bool:
+        with self.lock:
+            return self.db.execute("SELECT 1 FROM notifications WHERE key=?", (key,)).fetchone() is not None
+
+    def full_brief(self, now: datetime) -> str:
+        """The full briefing (weather, news) when AETHER has it, else the offline brief."""
+        try:
+            return self.a.briefing(now).written if hasattr(self.a, "briefing") else self.brief(now)
+        except Exception:
+            log.exception("briefing failed; using the offline brief")
+            return self.brief(now)
 
     def _stressed_recently(self, now: datetime) -> bool:
         with self.lock:

@@ -13,7 +13,7 @@ def test_server_runs_without_model_and_manages_state(tmp_path, monkeypatch):
     c = TestClient(create_app(str(cfgfile)))
     s = c.get("/api/status").json()
     assert s["model_loaded"] is False and "GGUF" in s["problem"]
-    assert c.post("/api/chat", json={"text": "hi"}).status_code == 503  # honest failure, no fake reply
+    assert c.post("/api/chat", json={"text": "explain entropy"}).status_code == 503  # honest failure, no fake reply
     c.post("/api/preferences", json={"key": "", "action": "add", "value": "Answer in Hinglish"})
     assert c.get("/api/preferences").json()[0]["instruction"] == "Answer in Hinglish"
     assert c.post("/api/stop?engaged=true").json()["emergency_stop"] is True

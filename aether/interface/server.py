@@ -285,6 +285,23 @@ def create_app(config_path: str | None = None) -> FastAPI:
         aether.audit.record("calendar.write", f"{ev.title} @ {ev.start.isoformat()}", True, "added by you in the app")
         return {**ev.as_dict(), "clash": [e.as_dict() for e in clash]}
 
+    @app.get("/api/briefing")
+    def briefing(online: bool = True):
+        b = aether.briefing(online=online and aether.cfg.security.network)
+        return {"text": b.written, "spoken": b.spoken, "sections": b.sections}
+
+    @app.get("/api/weather")
+    def weather(place: str = ""):
+        try:
+            w = aether.online.weather(place)
+        except (ValueError, PermissionError) as e:
+            raise HTTPException(400, str(e))
+        except Exception as e:
+            raise HTTPException(502, f"Weather service unreachable: {e}")
+        return {"place": w.place, "now": w.now_temp, "summary": w.now_summary, "line": w.line(0),
+                "days": [{"day": d.day.isoformat(), "summary": d.summary, "high": d.high, "low": d.low,
+                          "rain": d.rain_chance} for d in w.days]}
+
     @app.get("/api/mail")
     def mail(q: str = "", days: float = 3, limit: int = 12):
         from ..memory.mail import is_vip
