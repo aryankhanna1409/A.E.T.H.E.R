@@ -52,7 +52,10 @@ class MemoryConfig(BaseModel):
     hybrid_alpha: float = 0.6  # weight of vector score vs BM25 in hybrid search
     dedupe_threshold: float = 0.92
     reranker_model: str = ""  # e.g. "BAAI/bge-reranker-base" (CPU, ~1 GB RAM); empty = off
-    watch_interval_s: int = 300  # re-scan authorized folders this often (0 = off)
+    watch_interval_s: int = 300  # re-scan indexed folders this often (0 = off); only changed files are re-read
+    # Folders indexed for search. Empty = every readable folder. System, program, cache and hidden folders
+    # ($Recycle.Bin, Windows, Program Files, AppData, .venv, node_modules, .git, ...) are always skipped.
+    index_roots: list[str] = []
     episodic_keep_days: int = 365
 
 

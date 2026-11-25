@@ -8,6 +8,9 @@ import time
 from pathlib import Path
 
 log = logging.getLogger("aether")
+# pypdf warns about every damaged PDF it meets ("EOF marker not found"); AETHER just skips those files.
+for _noisy in ("pypdf", "PyPDF2", "pdfminer"):
+    logging.getLogger(_noisy).setLevel(logging.ERROR)
 
 
 def setup_logging(level: str = "INFO") -> None:

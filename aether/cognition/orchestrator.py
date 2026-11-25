@@ -366,12 +366,14 @@ class Aether:
         raw_llm = self.llm
         if raw_llm is not None:
             self.llm = TracingLLM(raw_llm, rec)
+        self._active_turns = getattr(self, "_active_turns", 0) + 1   # the indexer waits while this is > 0
         try:
             reply = self._handle(text)
         except Exception as e:
             self.meta.record_turn(CognitiveState(), (time.perf_counter() - start) * 1000, "error", "", [], str(e))
             raise
         finally:
+            self._active_turns -= 1
             if raw_llm is not None and isinstance(self.llm, TracingLLM):
                 self.llm = raw_llm
         reply.state.latency_ms = round((time.perf_counter() - start) * 1000, 1)
@@ -713,6 +715,7 @@ class Aether:
             self._watcher = FolderWatcher(
                 self.store, lambda p: self.policy.evaluate("fs.read", p).decision.value != "deny",
                 lambda p: read_text_any(Path(p)))
+            self._watcher.busy = lambda: getattr(self, "_active_turns", 0) > 0
         return self._watcher
 
     # ------------------------------------------------------------------ indexing
