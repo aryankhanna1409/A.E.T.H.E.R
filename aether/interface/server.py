@@ -431,7 +431,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         from datetime import datetime
         return {"text": aether.proactive.brief(datetime.now()),
                 "reminders": [r.__dict__ for r in aether.reminders.open()[:8]],
-                "goals": aether.graph.goals(5)}
+                "goals": aether.graph.goals(20)}
 
     @app.get("/api/config")
     def config_view():

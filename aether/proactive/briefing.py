@@ -147,6 +147,11 @@ def compose(a, now: datetime | None = None, online: bool | None = None) -> Brief
         w_lines.append("**Still working on:** " + "; ".join(_short(g["text"], 80) for g in running[:3]))
         s_lines.append(f"I'm still working on {_list([_short(g['text'].split(':')[0], 60, '') for g in running[:2]])}.")
 
+    yours = [g for g in a.graph.goals(50) if g["status"] == "active"]   # your own goals, tracked in Mission control
+    if yours:
+        sections["your_goals"] = [g["text"] for g in yours]
+        w_lines.append("**Your goals:** " + "; ".join(_short(g["text"], 70) for g in yours[:4]))
+
     if headlines:
         safe = [h for h in headlines if _safe(h.title)][:a.cfg.online.briefing_headlines]
         sections["news"] = [{"title": h.title, "source": h.source, "link": h.link} for h in safe]

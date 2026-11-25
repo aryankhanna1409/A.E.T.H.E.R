@@ -151,6 +151,16 @@ AETHER can start out knowing you. Ask ChatGPT, Claude or Gemini to "list everyth
 
 You see the list first and choose what to keep; nothing is saved until you say yes. ChatGPT's data export (`conversations.json`) works too: only what you said about yourself is offered. In the app, the same thing is under **Memory > Import**, where you can paste or drop a file.
 
+### Fill every tab from a seed pack (optional)
+
+A seed pack is one JSON file that fills Memory (including dated events), Knowledge (facts and rules), Goals (with their steps), Patterns, Preferences and the Lab's retrieval test cases at once. The format is described at the top of `aether/memory/seedpack.py`. Keep your pack outside this folder: it's personal. Quit AETHER from the tray first, then:
+
+```powershell
+.\.venv\Scripts\python scripts\import_seed_pack.py C:\path\to\my_seed_pack.json
+```
+
+Everything it adds is marked as seeded, and running it again adds nothing twice. Self and Activity fill in from real use: they show how AETHER actually performed and what it actually accessed, so they are never seeded.
+
 ## 8. Make sure it works well on your machine (optional, 15 minutes)
 
 ```powershell
