@@ -50,6 +50,8 @@ class ProactiveEngine:
                 self._queue("goal", "", "", f"goal:{g['id']}:{g['status']}", delivered=True)
         self._stop = threading.Event()
         self.battery_probe = _battery  # swappable in tests
+        from ..metacognition.learning import idle_seconds
+        self.idle_probe = idle_seconds   # seconds since the last keyboard or mouse input (None where unknown)
         self.listeners: list = []  # called with each ringing timer, e.g. the voice loop says it out loud
 
     # ---------------------------------------------------------- policy
@@ -95,10 +97,31 @@ class ProactiveEngine:
             n += self._queue("proposal", "Ideas to improve myself",
                              f"{len(waiting)} proposal(s) need your OK: " + "; ".join(p.title for p in waiting[:3]),
                              f"proposals:{day}")
+        n += self._learning_triggers(now)
         if self.cfg.wellness_checkins and self._stressed_recently(now):
             n += self._queue("checkin", "Checking in",
                              "You've sounded stressed a few times today. Want to take five minutes, or talk it through?",
                              f"checkin:{day}")
+        return n
+
+    def _learning_triggers(self, now: datetime) -> int:
+        """Start the overnight learning pass when the PC is idle and plugged in; offer the weekly summary on Sunday."""
+        learner = getattr(self.a, "learner", None)
+        if learner is None:
+            return 0
+        from ..metacognition.learning import next_report_due
+        b = self.battery_probe()
+        ok, why = learner.should_run(now, self.idle_probe(), None if not b else bool(b[1]))
+        if ok:
+            log.info("starting overnight learning (%s)", why)
+            threading.Thread(target=learner.run, args=("idle: " + why,), daemon=True, name="aether-learning").start()
+        n = 0
+        if next_report_due(now):
+            key = f"learned:{now.isocalendar()[0]}-{now.isocalendar()[1]}"
+            if not self._exists(key):
+                r = learner.report(now=now.timestamp())
+                if r["facts_learned"] or r["corrections"] or r["preferences"]:   # a quiet week is not news
+                    n += self._queue("learning", "What I learned this week", r["text"], key)
         return n
 
     def _calendar_triggers(self, now: datetime, day: str) -> int:

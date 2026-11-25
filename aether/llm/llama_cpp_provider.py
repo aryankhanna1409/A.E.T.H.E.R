@@ -40,6 +40,9 @@ class LlamaCppProvider:
             kwargs["n_threads"] = cfg.threads
         if cfg.chat_format:
             kwargs["chat_format"] = cfg.chat_format
+        adapter = Path(getattr(cfg, "adapter_path", "") or "").expanduser()
+        if getattr(cfg, "adapter_path", "") and adapter.exists():
+            kwargs["lora_path"] = str(adapter)   # a GGUF LoRA trained on your corrections
         if getattr(cfg, "draft_lookup_tokens", 0) > 0:
             try:
                 from llama_cpp.llama_speculative import LlamaPromptLookupDecoding

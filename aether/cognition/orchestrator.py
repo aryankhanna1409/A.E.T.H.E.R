@@ -212,6 +212,10 @@ class Aether:
                                    on_finish=lambda g: self.meta.review_goal(self.llm, g, self.store)) if llm else None
         self.goals = GoalRunner(self.executive) if self.executive else None
         from ..proactive import ProactiveEngine
+        from ..metacognition.learning import Learner
+        self.learner = Learner(self)
+        self.tools.register(Tool("what_i_learned", "what AETHER learned about the user this week: facts, corrections, "
+                                 "preferences", {}, "memory", lambda: self.learner.report()["text"]))
         self.proactive = ProactiveEngine(self, cfg.proactive)
         self.tools.register(Tool("start_goal", "start a multi-step autonomous task in the background (asks first)",
                                  {"goal": "the objective, with any constraints"}, "autonomy",
@@ -362,6 +366,11 @@ class Aether:
         self._streaming = on_event is not None
         self._spoken = spoken
         fb = self.meta.implicit_feedback(text)
+        if fb < 0 and getattr(self, "last_user_text", "") and getattr(self, "last_reply", ""):
+            try:   # "no, she lives in Delhi now": keep it as a lesson
+                self.learner.correction(self.last_user_text, self.last_reply, text)
+            except Exception as e:
+                log.warning("lesson not saved: %s", e)
         start = time.perf_counter()
         raw_llm = self.llm
         if raw_llm is not None:
@@ -378,6 +387,7 @@ class Aether:
                 self.llm = raw_llm
         reply.state.latency_ms = round((time.perf_counter() - start) * 1000, 1)
         self.last_reply = reply.text
+        self.last_user_text = text
         reply.turn_id = self.meta.record_turn(reply.state, reply.state.latency_ms, reply.state.intent,
                                               reply.text, reply.notices)
         self.conversations.touch(self.session, text)
@@ -690,6 +700,11 @@ class Aether:
             ctx.append("<calendar>\nStill ahead today:\n" + schedule + "\n</calendar>")
         if state.known_facts:
             ctx.append("<known_facts>\n" + "\n".join(state.known_facts) + "\n</known_facts>")
+        if self.cfg.learning.use_lessons:
+            lessons = self.learner.relevant(text)
+            if lessons:
+                ctx.append(self.learner.block(lessons))
+                state.known_facts += [f"lesson: {le.lesson or le.correction[:120]}" for le in lessons]
         if plan.memories:
             ctx.append("<memory>\n" + "\n".join(f"[memory {i}] ({m.source}, conf {m.confidence:.1f}) {injection.neutralize(m.text)}"
                                                for i, m in enumerate(plan.memories, 1)) + "\n</memory>")

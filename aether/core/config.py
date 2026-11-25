@@ -38,6 +38,7 @@ class LLMConfig(BaseModel):
     # (retrieved notes, quoted facts) and verifies them in one batch. No extra model or VRAM.
     # Run `python scripts/bench.py --compare-draft` to see whether it helps on your machine; 0 = off.
     draft_lookup_tokens: int = 0
+    adapter_path: str = ""  # optional GGUF LoRA adapter trained on your corrections (see scripts/train_adapter.py)
 
 
 class EmbeddingConfig(BaseModel):
@@ -75,6 +76,15 @@ class ProactiveConfig(BaseModel):
     event_alert_minutes: int = 15  # "Lecture in 15 minutes, Room 4" (0 = off)
     evening_review: str = "20:00"  # what's still open today + tomorrow's first event ("" = off)
     low_battery: int = 20  # warn when on battery and at or below this percent (0 = off)
+
+
+class LearningConfig(BaseModel):
+    # Overnight learning from your corrections (aether/metacognition/learning.py)
+    enabled: bool = True
+    idle_minutes: int = 30        # run once you've been away this long, plugged in
+    night_hours: str = "1-6"      # where idle time can't be read: run in this window instead
+    min_hours_between: int = 20   # at most about once a day
+    use_lessons: bool = True      # put relevant past corrections into the prompt
 
 
 class OnlineConfig(BaseModel):
@@ -186,6 +196,7 @@ class Config(BaseModel):
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
+    learning: LearningConfig = Field(default_factory=LearningConfig)
     calendar: CalendarConfig = Field(default_factory=CalendarConfig)
     mail: MailConfig = Field(default_factory=MailConfig)
     online: OnlineConfig = Field(default_factory=OnlineConfig)

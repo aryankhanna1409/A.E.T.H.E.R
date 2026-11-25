@@ -835,7 +835,7 @@ RENDER.lab = async (p) => {
 };
 
 RENDER.self = async (p) => {
-  const [m, props, revs] = await Promise.all([api("/api/metrics"), api("/api/proposals"), api("/api/reviews")]);
+  const [m, props, revs, learn] = await Promise.all([api("/api/metrics"), api("/api/proposals"), api("/api/reviews"), api("/api/learning").catch(() => null)]);
   const bars = (obj) => { const mx = Math.max(1, ...Object.values(obj)); return `<div class="bars">${Object.entries(obj).map(([k, v]) => `<div class="bar"><span>${esc(k || "direct")}</span><span class="track"><i style="width:${v / mx * 100}%"></i></span><span>${v}</span></div>`).join("")}</div>`; };
   const pct = x => x == null ? "–" : Math.round(x * 100) + "%";
   p.innerHTML = `<div class="page-head"><div class="grow"><h1>Self</h1><p>How AETHER has been doing over the last 7 days, and what it would change about itself.</p></div></div>
@@ -846,10 +846,18 @@ RENDER.self = async (p) => {
       <div class="card stat"><b>${m.feedback.positive} / ${m.feedback.negative}</b><span>👍 / 👎 from you</span></div></div>
       <div class="grid two" style="margin-bottom:16px"><div class="card"><h3>Routes</h3>${bars(m.routes)}</div><div class="card"><h3>What you ask for</h3>${bars(m.intents)}</div></div>`
       : `<div class="card empty" style="margin-bottom:16px">No turns measured yet. Chat for a while and this fills in.</div>`}
+    ${learn ? `<div class="grid two" style="margin-bottom:16px">
+      <div class="card"><h3><span class="grow">What I learned this week</span><button class="ghost" id="learn-now" title="Run the overnight learning pass now">Learn now</button></h3>
+        <div class="learned">${learn.report.text.split("\n").map((l, i) => i ? `<div class="item"><div class="grow">${esc(l.replace(/^- /, ""))}</div></div>` : `<p class="muted" style="margin:0 0 6px">${esc(l)}</p>`).join("")}</div>
+        <div class="meta" style="margin-top:10px">${learn.last_run ? `Last learning pass ${new Date(learn.last_run.started * 1000).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })} (${esc(learn.last_run.trigger || "")})` : "No learning pass yet: it runs when the PC is plugged in and you've been away for 30 minutes."} · ${esc(learn.report.adapter)}</div></div>
+      <div class="card"><h3>Lessons from your corrections</h3>${learn.lessons.map(l => `<div class="item"><div class="grow">${esc(l.lesson || l.correction || "You marked this answer as wrong")}<div class="meta">${esc(l.question)}${l.uses ? ` · used ${l.uses}×` : ""}</div></div><button class="icon-btn" data-forget="${l.id}" title="Forget this lesson">✕</button></div>`).join("")
+        || `<div class="empty">No corrections yet. When I get something wrong, just say so ("no, she lives in Delhi now") and I'll remember the fix.</div>`}</div></div>` : ""}
     <div class="grid two"><div class="card"><h3>Proposals</h3>${props.filter(x => x.status === "proposed").map(x => `<div class="item"><div class="grow"><b style="font-weight:600">${esc(x.title)}</b><div class="meta">${esc(x.rationale)}</div></div>
         <div class="row"><button class="primary" data-p="${x.id}" data-a="true">Approve</button><button class="ghost" data-p="${x.id}" data-a="false">Decline</button></div></div>`).join("") || `<div class="empty">Nothing to change right now.</div>`}
       ${props.filter(x => x.status !== "proposed").slice(0, 8).map(x => `<div class="item"><div class="grow muted">${esc(x.title)}</div><span class="chip ${x.status === "applied" ? "good" : ""}">${x.status}</span></div>`).join("")}</div>
     <div class="card"><h3>Self-reviews of finished goals</h3>${revs.map(r => `<div class="item"><div class="grow">Goal #${r.goal_id} · ${esc(r.status)}<div class="meta">${esc(r.went_well)} ${r.went_wrong && r.went_wrong !== "nothing" ? "· missed: " + esc(r.went_wrong) : ""}${r.lesson ? "<br>Lesson: " + esc(r.lesson) : ""}</div></div><span class="chip accent">${Math.round(r.score * 100)}%</span></div>`).join("") || `<div class="empty">No finished goals yet.</div>`}</div></div>`;
+  const ln = $("#learn-now", p); if (ln) ln.onclick = async () => { await api("/api/learning/run", { method: "POST" }); toast("Learning", "Going through your corrections and memories now. This page updates when it's done."); setTimeout(() => location.hash === "#self" && RENDER.self(p), 8000); };
+  $$("[data-forget]", p).forEach(b => b.onclick = async () => { await api(`/api/learning/lessons/${b.dataset.forget}`, { method: "DELETE" }); RENDER.self(p); });
   $$("[data-p]", p).forEach(b => b.onclick = async () => { try { const r = await api(`/api/proposals/${b.dataset.p}?approve=${b.dataset.a}`, { method: "POST" }); toast(r.message); } catch (e) { toast("Not applied", e.message, "error"); } RENDER.self(p); });
 };
 

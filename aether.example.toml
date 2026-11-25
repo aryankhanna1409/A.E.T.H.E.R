@@ -81,6 +81,13 @@ event_alert_minutes = 15         # "lecture in 15 minutes" (0 = off)
 evening_review = "20:00"         # what's still open + tomorrow's first event ("" = off)
 low_battery = 20                 # warn on battery at or below this percent (0 = off)
 
+[learning]
+# Overnight learning from your corrections: lessons go into the prompt, the night pass distils them.
+enabled = true
+idle_minutes = 30                # run when plugged in and you've been away this long
+night_hours = "1-6"              # if idle time can't be read, run in this window
+use_lessons = true               # remind the model of past corrections that fit the question
+
 [online]
 # Live information with no accounts or API keys. Turn security.network off to go fully offline.
 location = ""                    # e.g. "Vellore" or "Vellore, India": used for weather
