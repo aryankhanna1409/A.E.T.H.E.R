@@ -116,6 +116,17 @@ def main() -> int:
     line(OK if not voice else WARN, "voice packages" + (f": {why(voice)}" if voice else ""),
          '.\\.venv\\Scripts\\python -m pip install -e ".[voice]"   (send its last 30 lines if this stays)'
          if voice else "")
+    if has("openwakeword"):
+        try:
+            from aether.speech.voice_loop import WakeWord
+            WakeWord(cfg.voice)
+            line(OK, f"wake word \"{cfg.voice.wake_word}\" loads")
+        except Exception as e:
+            line(WARN, f"wake word didn't load: {str(e)[:160]}",
+                 'Saying the name ("Jarvis", "Nova", "AETHER") still works. Send this line if it stays.')
+    if not cfg.voice.tts_voice_path and not sorted((ROOT / "models" / "voices").rglob("*.onnx")):
+        line(WARN, "no speaking voice: always-listening can't answer out loud",
+             "Run .\\.venv\\Scripts\\python scripts\\get_model.py voice")
     if cfg.voice.tts_voice_path and not Path(cfg.voice.tts_voice_path).exists():
         found = sorted((ROOT / "models" / "voices").rglob("*.onnx"))
         line(WARN, "speaking voice file not found",

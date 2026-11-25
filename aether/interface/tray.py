@@ -280,13 +280,24 @@ class Tray:
         if not self.listening():
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             self.voice = subprocess.Popen(self.voice_command(), cwd=str(ROOT), creationflags=flags)
+            threading.Thread(target=self._watch_voice, args=(self.voice,), daemon=True).start()
+
+    def _watch_voice(self, proc: subprocess.Popen) -> None:
+        """If the listener dies on its own (a missing voice file, no microphone...), say so instead of failing silently."""
+        code = proc.wait()
+        if self._stop.is_set() or proc is not self.voice or code == 0 or not self.listening_wanted():
+            return
+        voice_log = log_dir() / "voice.log"
+        tail = log_tail(voice_log, 2)
+        log.error("always-listening voice exited with code %s. See %s", code, voice_log)
+        self.notify("AETHER stopped listening", f"Details in {voice_log}" + (f"\n{tail}" if tail else ""))
 
     def toggle_listening(self) -> None:
         """Mute or unmute the microphone. Muted, nothing listens at all; the hotkey still opens the HUD."""
         from .nova import save_settings
         if self.listening():
+            save_settings({"listening": False})   # first, so the watcher knows this stop was on purpose
             self.voice.terminate()
-            save_settings({"listening": False})
             self.notify("Microphone off", "AETHER isn't listening. Turn it back on from the tray menu.")
         else:
             save_settings({"listening": True})
