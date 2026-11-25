@@ -134,7 +134,7 @@ Structured outputs are enforced with a JSON grammar, so even small models return
 ## Check it on your PC
 
 ```powershell
-.\.venv\Scripts\pytest                       # 247 unit tests, no model needed, about 15 s
+.\.venv\Scripts\pytest                       # 254 unit tests, no model needed, about 15 s
 .\.venv\Scripts\aether-eval                  # 10 end-to-end scenarios with YOUR model, 5-15 min
 .\.venv\Scripts\python scripts\bench.py      # speed against the performance budget
 ```

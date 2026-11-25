@@ -28,13 +28,11 @@ def build(config_path: str | None = None, confirm: Callable[[str], bool] = lambd
         reranker = reranker if reranker.available else None
     aether = Aether(cfg, llm, embedder, confirm, reranker)
     if cfg.memory.watch_interval_s > 0 and cfg.security.allowed_read_roots:
+        from .retrieval.watcher import index_roots
+        roots = index_roots(cfg.security.allowed_read_roots, cfg.memory.index_roots)
         w = aether.watcher()
-        for folder in cfg.security.allowed_read_roots:
-            try:
-                w.scan(folder)
-            except FileNotFoundError:
-                log.warning("Authorized folder %s does not exist yet.", folder)
-        w.watch(cfg.security.allowed_read_roots, cfg.memory.watch_interval_s)
+        w.prune(roots)
+        w.start(roots, cfg.memory.watch_interval_s)   # background: the first full pass can take a while
     try:
         from .personalization.observations import analyse
         analyse(aether.db, aether.observations, decrypt=aether.store.cipher.decrypt)
