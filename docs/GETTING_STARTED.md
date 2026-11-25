@@ -112,6 +112,17 @@ For hands-free "hey Jarvis" voice (wake word, always listening):
 .\.venv\Scripts\aether-voice
 ```
 
+### Bring your memories from other assistants (optional)
+
+AETHER can start out knowing you. Ask ChatGPT, Claude or Gemini to "list everything you remember about me" (or copy ChatGPT's Settings > Personalization > Manage memories), save the text as a .txt file, and import it:
+
+```powershell
+.\.venv\Scripts\python scripts\import_memory.py my_memories.txt
+.\.venv\Scripts\python scripts\import_memory.py docs\memory\seed_from_claude.md
+```
+
+You see the list first and choose what to keep; nothing is saved until you say yes. ChatGPT's data export (`conversations.json`) works too: only what you said about yourself is offered. In the app, the same thing is under **Memory > Import**, where you can paste or drop a file.
+
 ## 8. Make sure it works well on your machine (optional, 15 minutes)
 
 ```powershell

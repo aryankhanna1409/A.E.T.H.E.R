@@ -48,7 +48,7 @@ aether/
 desktop/           Tauri 2 shell
 installer/         Inno Setup script
 scripts/           Windows setup, model download, GPU tuning, benchmark, installer build
-tests/             235 tests, no model weights needed
+tests/             247 tests, no model weights needed
 ```
 
 ## Dependencies
@@ -97,7 +97,7 @@ tests/             235 tests, no model weights needed
 
 ## Known limits
 
-* Everything was built and unit-tested here with a scripted model double (235 tests). It has **not yet run against real GGUF weights, a microphone, a GPU or Windows APIs**; `aether-eval` and `scripts/bench.py` are the first real check on your PC.
+* Everything was built and unit-tested here with a scripted model double (247 tests). It has **not yet run against real GGUF weights, a microphone, a GPU or Windows APIs**; `aether-eval` and `scripts/bench.py` are the first real check on your PC.
 * Small local models follow instructions less reliably than large cloud models. The symbolic layer and code-side filters catch a lot of that, but answer quality still depends on the GGUF you choose.
 * The Tauri shell and the Inno Setup installer have not been compiled here.
 * The injection scanner is a tripwire; the policy engine and taint mode are the real guarantee.
