@@ -202,7 +202,9 @@ class Config(BaseModel):
 
 
 def load_config(path: str | Path | None = None) -> Config:
-    candidates = [Path(path)] if path else [Path("aether.toml"), default_home() / "aether.toml"]
+    # The install folder too, so it is found when Windows starts AETHER at sign-in from another folder.
+    install = Path(__file__).resolve().parents[2] / "aether.toml"
+    candidates = [Path(path)] if path else [Path("aether.toml"), install, default_home() / "aether.toml"]
     data: dict = {}
     for p in candidates:
         if p.exists():

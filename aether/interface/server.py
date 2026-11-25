@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..app import build
-from ..core.logging import setup_logging
+from ..core.logging import ensure_streams, setup_logging
 from ..neurosymbolic.rules import RuleEngine
 
 WEB = Path(__file__).parent / "web"
@@ -784,6 +784,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
     args = ap.parse_args(argv)
+    ensure_streams("server")   # started without a console (tray, sign-in): uvicorn needs a stdout
     setup_logging("INFO")
     app = create_app(args.config)
     if not args.no_browser:
