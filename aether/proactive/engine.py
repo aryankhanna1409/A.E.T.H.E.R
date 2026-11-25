@@ -89,6 +89,7 @@ class ProactiveEngine:
         n += self._calendar_triggers(now, day)
         n += self._battery_trigger(now, day)
         n += self._mail_trigger(now)
+        n += self._learning_triggers(now)
         for g in self.a.graph.goals(50):
             if g["status"] in {"done", "failed", "cancelled"}:
                 n += self._queue("goal", f"Goal {g['status']}", g["text"][:200], f"goal:{g['id']}:{g['status']}")
@@ -97,31 +98,10 @@ class ProactiveEngine:
             n += self._queue("proposal", "Ideas to improve myself",
                              f"{len(waiting)} proposal(s) need your OK: " + "; ".join(p.title for p in waiting[:3]),
                              f"proposals:{day}")
-        n += self._learning_triggers(now)
         if self.cfg.wellness_checkins and self._stressed_recently(now):
             n += self._queue("checkin", "Checking in",
                              "You've sounded stressed a few times today. Want to take five minutes, or talk it through?",
                              f"checkin:{day}")
-        return n
-
-    def _learning_triggers(self, now: datetime) -> int:
-        """Start the overnight learning pass when the PC is idle and plugged in; offer the weekly summary on Sunday."""
-        learner = getattr(self.a, "learner", None)
-        if learner is None:
-            return 0
-        from ..metacognition.learning import next_report_due
-        b = self.battery_probe()
-        ok, why = learner.should_run(now, self.idle_probe(), None if not b else bool(b[1]))
-        if ok:
-            log.info("starting overnight learning (%s)", why)
-            threading.Thread(target=learner.run, args=("idle: " + why,), daemon=True, name="aether-learning").start()
-        n = 0
-        if next_report_due(now):
-            key = f"learned:{now.isocalendar()[0]}-{now.isocalendar()[1]}"
-            if not self._exists(key):
-                r = learner.report(now=now.timestamp())
-                if r["facts_learned"] or r["corrections"] or r["preferences"]:   # a quiet week is not news
-                    n += self._queue("learning", "What I learned this week", r["text"], key)
         return n
 
     def _calendar_triggers(self, now: datetime, day: str) -> int:
@@ -188,6 +168,26 @@ class ProactiveEngine:
         return self._queue("battery", f"Battery {pct}%", "You're on battery. Plug in soon, or I'll keep the "
                            "heavy work light." if step == "low" else "Battery is nearly empty. Save your work and plug in.",
                            f"battery:{day}:{step}")
+
+    def _learning_triggers(self, now: datetime) -> int:
+        """Start the overnight learning pass when the PC is idle and plugged in; offer the weekly summary on Sunday."""
+        learner = getattr(self.a, "learner", None)
+        if learner is None:
+            return 0
+        from ..metacognition.learning import next_report_due
+        b = self.battery_probe()
+        ok, why = learner.should_run(now, self.idle_probe(), None if not b else bool(b[1]))
+        if ok:
+            log.info("starting overnight learning (%s)", why)
+            threading.Thread(target=learner.run, args=("idle: " + why,), daemon=True, name="aether-learning").start()
+        n = 0
+        if next_report_due(now):
+            key = f"learned:{now.isocalendar()[0]}-{now.isocalendar()[1]}"
+            if not self._exists(key):
+                r = learner.report(now=now.timestamp())
+                if r["facts_learned"] or r["corrections"] or r["preferences"]:   # a quiet week is not news
+                    n += self._queue("learning", "What I learned this week", r["text"], key)
+        return n
 
     def ring(self, now: datetime | None = None) -> int:
         """Timers and alarms that are due. They ignore quiet hours and the hourly limit: you set them."""
