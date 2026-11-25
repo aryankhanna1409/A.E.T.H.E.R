@@ -60,6 +60,11 @@ export const HUD = {
     document.body.appendChild(el);
     this.cv = el.querySelector("canvas"); this.g = this.cv.getContext("2d");
     el.querySelector(".hud-x").onclick = () => this.close();
+    // Misheard? Click what it heard, fix it and press Enter: AETHER learns your accent from the fix.
+    const you = el.querySelector(".hud-you");
+    you.title = "Misheard? Click to fix it. AETHER learns from your fix.";
+    you.style.cursor = "text";
+    you.onclick = () => { const i = el.querySelector(".hud-type input"); i.value = you.textContent; i.focus(); i.select(); };
     el.querySelector(".hud-brief").onclick = () => this.ask("brief me");
     el.querySelector("form").onsubmit = e => { e.preventDefault(); const i = el.querySelector("input"); const v = i.value.trim(); if (v) { i.value = ""; i.blur(); this.ask(v); } };
     this.onKey = e => {
@@ -90,6 +95,9 @@ export const HUD = {
 
   setMode(mode, label, sub = "") {
     this.mode = mode;
+    // Tell Nova (the desktop pet) what is happening, so it changes colour with the HUD.
+    const state = { listening: "listening", thinking: "thinking", speaking: "speaking" }[mode] || "idle";
+    fetch("/api/presence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state, seconds: 60 }) }).catch(() => {});
     if (!this.el) return;
     this.el.dataset.mode = mode;
     this.el.querySelector(".hud-mode").textContent = label;

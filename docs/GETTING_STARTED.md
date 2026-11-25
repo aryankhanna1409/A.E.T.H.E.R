@@ -112,6 +112,32 @@ For hands-free "hey Jarvis" voice (wake word, always listening):
 .\.venv\Scripts\aether-voice
 ```
 
+### Teach it your accent (5 minutes, recommended)
+
+Speech-to-text is trained mostly on American and British voices, so it can trip on Indian English. AETHER already tells it to expect Indian English, your name, and the names and places in your memories. To go further, read it 20 short phrases:
+
+```powershell
+.\.venv\Scripts\python scripts\learn_my_voice.py
+```
+
+It shows what it heard for each phrase and learns the words it gets wrong ("on" becomes "Aundh"). Then you say "hey Jarvis" and "hey Nova" a few times, which tunes the wake word to your voice. It prints how much more accurate it got. Run it again any time.
+
+After that it keeps learning: when the HUD mishears you, click what it heard, fix it and press Enter. When the same fix comes up twice, it remembers it.
+
+You can wake it with **"hey Jarvis"** or just **"hey Nova"**, and say a command in the same breath ("Nova, what's the time?").
+
+### Meet Nova, your desktop companion
+
+When AETHER runs from the tray (`start.bat`), **Nova** appears in the bottom-right corner: a small glowing orb with eyes that stays on top of your windows.
+
+- **Blue** and breathing when idle (it blinks and glances at your mouse pointer).
+- **Amber** with wide eyes when listening, and with a spinning ring when thinking.
+- **Shifting between blue and amber** while speaking. **Grey and asleep** if AETHER's server isn't running.
+- **Click** it to talk. **Drag** it anywhere (it remembers the spot). **Right-click** for: open AETHER, settings, hide for an hour, back to the corner, quit.
+- Bring it back with the tray menu's **Nova on screen**. To run it on its own: `.\.venv\Scripts\pythonw -m aether.interface.nova`.
+
+It uses almost no CPU and no GPU. It needs Python's Tk, which the python.org installer includes by default (`doctor.py` checks it).
+
 ### Bring your memories from other assistants (optional)
 
 AETHER can start out knowing you. Ask ChatGPT, Claude or Gemini to "list everything you remember about me" (or copy ChatGPT's Settings > Personalization > Manage memories), save the text as a .txt file, and import it:

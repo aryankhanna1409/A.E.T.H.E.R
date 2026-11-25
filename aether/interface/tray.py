@@ -90,6 +90,7 @@ class Tray:
         self.port, self.hotkey, self.poll_s, self.config = port, hotkey, poll_s, config
         self.paused = False
         self.server: subprocess.Popen | None = None
+        self.nova: subprocess.Popen | None = None
         self.icon = None
         self._stop = threading.Event()
 
@@ -185,8 +186,34 @@ class Tray:
             except Exception as e:
                 log.debug("notification poll failed: %s", e)
 
+    # ---- Nova, the desktop pet
+    def nova_command(self) -> list[str]:
+        exe = sys.executable
+        if sys.platform == "win32" and exe.lower().endswith("python.exe"):
+            exe = exe[:-len("python.exe")] + "pythonw.exe"   # no console window
+        return [exe, "-m", "aether.interface.nova", "--port", str(self.port)]
+
+    def nova_running(self) -> bool:
+        return self.nova is not None and self.nova.poll() is None
+
+    def start_nova(self) -> None:
+        if not self.nova_running():
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            self.nova = subprocess.Popen(self.nova_command(), creationflags=flags)
+
+    def toggle_nova(self) -> None:
+        from .nova import save_settings
+        if self.nova_running():
+            self.nova.terminate()
+            save_settings({"enabled": False})
+        else:
+            save_settings({"enabled": True})
+            self.start_nova()
+
     def quit(self) -> None:
         self._stop.set()
+        if self.nova_running():
+            self.nova.terminate()
         if self.icon is not None:
             self.icon.stop()
         if self.server is not None:
@@ -206,6 +233,7 @@ class Tray:
             item("Open AETHER", lambda: self.open(), default=True),
             item(f"Talk ({self.hotkey})", lambda: self.open(hud=True)),
             item("Morning briefing", lambda: self.open(hud="brief")),
+            item("Nova on screen", lambda: self.toggle_nova(), checked=lambda _: self.nova_running()),
             menu.SEPARATOR,
             item("Pause notifications", toggle_pause, checked=lambda _: self.paused),
             item("Start with Windows", lambda: self.set_startup(not self.startup_enabled()),
@@ -220,6 +248,12 @@ class Tray:
             if not self.ensure_server():
                 self.notify("AETHER", "The server didn't start. Run aether-server in a terminal to see why.")
                 return
+            from .nova import enabled as nova_enabled
+            if nova_enabled():
+                try:
+                    self.start_nova()
+                except Exception as e:  # e.g. Python installed without Tk: the tray still works
+                    log.warning("Nova didn't start: %s", e)
             if not quiet_start:
                 self.notify("AETHER is ready", f"Press {self.hotkey.upper()} anywhere to talk.")
             threading.Thread(target=self._poll_loop, daemon=True).start()

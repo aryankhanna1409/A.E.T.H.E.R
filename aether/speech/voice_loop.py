@@ -15,6 +15,7 @@ import time
 from ..core.config import VoiceConfig
 from ..core.logging import log
 from .chunker import SentenceChunker, clean
+from .profile import WAKE, SpeechProfile, terms_from_memories
 from .vad import Segmenter, rms
 
 FRAME_MS = 30
@@ -23,9 +24,19 @@ FOLLOW_UP_S = 8
 
 class WakeWord:
     def __init__(self, cfg: VoiceConfig):
+        from pathlib import Path
+
         from openwakeword.model import Model
         name = cfg.wake_word
-        self.model = Model(wakeword_models=[name]) if name.endswith(".onnx") else Model(wakeword_models=[name])
+        kwargs: dict = {"wakeword_models": [name]}
+        verifier = Path(cfg.wake_verifier_path).expanduser() if cfg.wake_verifier_path else None
+        if verifier and verifier.exists():  # tuned to your voice by scripts/learn_my_voice.py
+            key = Path(name).stem if name.endswith(".onnx") else name
+            kwargs.update(custom_verifier_models={key: str(verifier)}, custom_verifier_threshold=0.3)
+        try:
+            self.model = Model(**kwargs)
+        except TypeError:  # older openWakeWord without verifiers
+            self.model = Model(wakeword_models=[name])
         self.threshold = cfg.wake_threshold
 
     def heard(self, frame_int16) -> bool:
@@ -34,23 +45,53 @@ class WakeWord:
 
 
 class VoiceAssistant:
-    def __init__(self, aether, cfg: VoiceConfig, stt=None, tts=None, wake=None):
+    def __init__(self, aether, cfg: VoiceConfig, stt=None, tts=None, wake=None, name_stt=None, profile=None):
         self.aether, self.cfg = aether, cfg
+        if profile is None:
+            acfg = getattr(aether, "cfg", None)
+            profile = SpeechProfile.for_home(acfg.home, acfg.user_name, terms_from_memories(aether.store)) \
+                if acfg is not None else SpeechProfile()
+        self.profile = profile
+        real = stt is None   # tests pass their own speech-to-text; only a real run loads Whisper models
         if stt is None:
             from .stt import SpeechToText
-            stt = SpeechToText(cfg)
+            stt = SpeechToText(cfg, profile)
+        if name_stt is None and cfg.wake_by_name and real:
+            try:
+                from .stt import SpeechToText
+                name_stt = SpeechToText(cfg, profile, model_name=cfg.wake_stt_model)
+            except Exception as e:  # pragma: no cover - the wake word still works
+                log.warning("say-the-name wake unavailable: %s", e)
+        self.name_stt = name_stt
+        self.idle_seg = Segmenter(cfg.vad_energy, 500, FRAME_MS)
+        self.idle_seg.max_ms = 8000
         if tts is None:
             from .tts import TextToSpeech
             tts = TextToSpeech(cfg)
         self.stt, self.tts = stt, tts
         self.wake = wake if wake is not None else WakeWord(cfg)
         self.frames: queue.Queue = queue.Queue(maxsize=500)
+        self.on_state = None  # called with the new state (idle/listening/thinking/speaking), e.g. to tell Nova
         self.state = "idle"
         self.follow_up_until = 0.0
         self.running = True
         self.seg = Segmenter(cfg.vad_energy, cfg.silence_ms, FRAME_MS)
         self.barge_frames = 0
         self._gen = 0  # bumped to cancel queued speech
+
+    @property
+    def state(self) -> str:
+        return self._state
+
+    @state.setter
+    def state(self, value: str) -> None:
+        changed = value != getattr(self, "_state", None)
+        self._state = value
+        if changed and self.on_state:
+            try:
+                self.on_state(value)
+            except Exception:  # pragma: no cover - a display must never break the voice loop
+                pass
 
     def _on_audio(self, indata, frames, t, status):
         try:
@@ -66,6 +107,29 @@ class VoiceAssistant:
         if not text:
             self.state = "listening"
             return ""
+        return self.handle_text(text)
+
+    def name_called(self, audio) -> bool:
+        """While idle: was the assistant called by name ("hey Nova", or "Nova, what's the time")?
+        A command said in the same breath is answered at once."""
+        if self.name_stt is None:
+            return False
+        heard = self.name_stt.transcribe(audio).strip()
+        m = WAKE.search(heard)
+        if not m or m.start() > 12:      # the name has to come first, not in passing ("I told Nova ...")
+            return False
+        self.state = "listening"
+        self.seg.reset()
+        rest = heard[m.end():].strip(" ,.!?")
+        if len(rest.split()) >= 2:       # a command in the same breath: transcribe it properly and answer
+            full = self.stt.transcribe(audio)
+            m2 = WAKE.search(full)
+            rest = (full[m2.end():] if m2 else rest).strip(" ,.!?") or rest
+            self.handle_text(rest)
+        return True
+
+    def handle_text(self, text: str) -> str:
+        self.state = "thinking"
         log.info("heard: %s", text)
         self._gen += 1
         gen, q, started, replaced = self._gen, queue.Queue(), [False], [False]
@@ -118,6 +182,12 @@ class VoiceAssistant:
             if self.wake.heard((frame * 32767).astype(np.int16)):
                 self.state = "listening"
                 self.seg.reset()
+                self.idle_seg.reset()
+                return
+            if self.name_stt is not None:
+                audio = self.idle_seg.feed(frame)
+                if audio is not None:
+                    self.name_called(audio)
             return
         if self.state == "speaking":
             if self.cfg.barge_in and rms(frame) >= self.cfg.vad_energy * 2.5:
@@ -168,7 +238,25 @@ def main() -> None:
     aether, problem = build(confirm=ask)
     if problem:
         raise SystemExit(problem)
-    VoiceAssistant(aether, aether.cfg.voice).run()
+    va = VoiceAssistant(aether, aether.cfg.voice)
+    va.on_state = report_presence
+    va.run()
+
+
+def report_presence(state: str, port: int = 8765) -> None:
+    """Best effort: tell the local server (and so Nova) the voice state. Never blocks or fails the loop."""
+    import json
+    import urllib.request
+
+    def send():
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/api/presence", method="POST",
+                                         data=json.dumps({"state": state, "seconds": 120}).encode(),
+                                         headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=0.5).close()
+        except Exception:
+            pass
+    threading.Thread(target=send, daemon=True).start()
 
 
 if __name__ == "__main__":
