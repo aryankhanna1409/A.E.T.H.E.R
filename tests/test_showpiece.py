@@ -17,7 +17,8 @@ def kg():
 
 
 # ------------------------------------------------------------------ traces
-def test_every_turn_leaves_an_encrypted_trace(make_aether):
+def test_every_turn_leaves_an_encrypted_trace(make_aether, cfg):
+    cfg.fast_mode = False   # the full path, so the trace shows every model pass
     a = make_aether(FakeLLM())
     raw = a.llm
     r = a.handle("what is the capital of france?")

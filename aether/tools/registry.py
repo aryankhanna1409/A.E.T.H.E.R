@@ -74,9 +74,13 @@ class ToolRegistry:
             words = {"shutdown": r"shut\s*down|power\s*off|turn\s*off", "restart": r"restart|reboot",
                      "sleep": r"sleep", "lock": r"\block", "cancel": r"cancel|stop|abort"}.get(act)
             return bool(words and re.search(words, said))
-        if category == "app.open":
-            name = str(args.get("name", "")).lower().strip()
-            return bool(name) and name in said and bool(re.search(r"\b(open|launch|start|run|fire up|pull up)\b", said))
+        if category in {"app.open", "app.close"}:
+            name = re.sub(r"^(?:the|my)\s+|\s+(?:app|folder)$", "", str(args.get("name", "")).lower().strip())
+            verbs = r"\b(open|launch|start|run|fire up|pull up|show|go to)\b" if category == "app.open" else \
+                r"\b(close|quit|exit|kill|shut|stop)\b"
+            return bool(name) and name in said and bool(re.search(verbs, said))
+        if category == "screen.save":
+            return bool(re.search(r"screen\s*shot|capture (?:my |the )?screen|screen\s*grab", said))
         return True
 
     def mark_tainted(self, where: str, hits: list[str]) -> None:

@@ -136,7 +136,10 @@ class SecurityConfig(BaseModel):
     # Actions that run straight away, with no Allow box, when YOU ask for them in what you just said or typed
     # ("shut down my pc", "open spotify"). They still ask if the request came from a document, a web page,
     # a background goal, or anything that looked like a prompt injection. Set to [] to always be asked.
-    run_when_asked: list[str] = Field(default_factory=lambda: ["system.power", "app.open"])
+    run_when_asked: list[str] = Field(default_factory=lambda: ["system.power", "app.open", "app.close", "screen.save"])
+    # "open <anything>": any installed app (Start menu, Microsoft Store, PATH), folders and Windows settings pages,
+    # not only the names in `apps` below. Still only runs without asking when you said it yourself.
+    open_any_app: bool = True
     network: bool = True  # web research on/off
     # Apps AETHER may open: name -> command or full path to the .exe
     apps: dict[str, str] = Field(default_factory=lambda: {
@@ -209,6 +212,10 @@ class Config(BaseModel):
     online: OnlineConfig = Field(default_factory=OnlineConfig)
     briefing: BriefingConfig = Field(default_factory=BriefingConfig)
     max_plan_steps: int = 8
+    # Fast mode: short everyday messages skip the model's interpretation pass, the fact-check pass only runs when
+    # the answer talks about people or things AETHER has facts on, and learning from the turn happens after the
+    # reply instead of before it. Off = every turn takes the full (slower) path.
+    fast_mode: bool = True
 
     @property
     def db_path(self) -> Path:

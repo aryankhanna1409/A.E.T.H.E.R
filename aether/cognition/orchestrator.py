@@ -61,6 +61,8 @@ from .context import TopicTracker, WorkingMemory
 from .trace import TraceRecorder, TraceStore, TracingLLM
 from .ir import CognitiveState, IntentIR, ToolCall
 from .perception import perceive
+from ..tools.todos import todo_tools
+from ..tools.apps import Apps, app_tools
 from .router import QueryRouter
 
 PERSONA = """You are {name}, {user}'s personal AI assistant running entirely on their own Windows PC.
@@ -194,13 +196,16 @@ class Aether:
         self.system = System()
         for t in everyday_tools(self, self.system):
             self.tools.register(t)
+        self.apps = Apps(cfg.security.apps, cfg.security.open_any_app)
+        if self.apps.windows and cfg.security.open_any_app:
+            self.apps.warm()
+        for t in app_tools(self.apps):   # replaces the allowlist-only app_open from computer_tools
+            self.tools.register(t)
         self.last_reply = ""
         self.clock = datetime.now  # swappable in tests
         self.reminders = Reminders(self.db, self.lock)
-        self.tools.register(Tool("remind", "set a reminder for the user",
-                                 {"text": "what", "when": "e.g. tomorrow, friday, 2026-12-01"}, "memory",
-                                 lambda text, when="tomorrow": "Reminder set for {0.due}: {0.text}".format(
-                                     self.reminders.add(text, when))))
+        for t in todo_tools(self):
+            self.tools.register(t)
         self.router = QueryRouter(cfg.memory, self.store, self.kg, reranker)
         self.tools.register(Tool("research", "deep research: web + your documents, known vs new, cited brief",
                                  {"question": "the research question"}, "web.search", self._research))
@@ -435,7 +440,9 @@ class Aether:
             return Reply(routine_summary(routine, results), state)
 
         now = self.clock()
-        q = quick_cmds.match(text, now, set(self.cfg.security.apps))
+        q = quick_cmds.match(text, now, lambda name, exact=False: self.apps.resolve(name, exact) is not None)
+        if q is not None and q.loose and q.tool == "complete_todo" and self.reminders.find(q.args.get("item", "")) is None:
+            q = None   # "dinner is done" is conversation unless dinner is on your list
         if q is not None:
             emit_ = getattr(self, "_emit", lambda kind, data: None)
             state.intent, state.route, state.confidence = "quick", ["tools"] if q.kind != "answer" else [], 1.0
@@ -480,7 +487,7 @@ class Aether:
         emit("stage", {"name": "perceive", "done": True, "wellness": signal.level, "topic": state.active_topic})
         # INTERPRET (neural) + VALIDATE (symbolic)
         emit("stage", {"name": "interpret", "label": "Understanding the request"})
-        ir = perceive(self.llm, text, self.wm.history(topic.id), self.tools.names())
+        ir = perceive(self.llm, text, self.wm.history(topic.id), self.tools.names(), fast=self.cfg.fast_mode)
         report = validate_ir(ir, set(self.tools.names()))
         state.current_goal = ir.objective
         state.intent = re.sub(r"[^a-z_]", "", ir.intent.lower())[:32] or "other"
@@ -558,7 +565,12 @@ class Aether:
         emit("stage", {"name": "verify", "label": "Checking the answer against what I know"})
 
         # VERIFY
-        check = check_answer(self.llm, self.kg, draft) if self.kg.all() and signal.level != "crisis" else None
+        # fact-check when the answer could contradict what AETHER knows: it names someone or something with stored
+        # facts, or you asked about yourself ("where do I live?"). A general question skips the extra model pass.
+        worth_checking = self.kg.all() and signal.level != "crisis" and (
+            not self.cfg.fast_mode or bool(re.search(r"\b(i|me|my|mine|i'm|i've)\b", text, re.I))
+            or bool(self.router.named_in(draft, self.kg.entities())))
+        check = check_answer(self.llm, self.kg, draft) if worth_checking else None
         if check and check.contradictions:
             state.contradictions += check.contradictions
             state.revised = True
@@ -596,13 +608,25 @@ class Aether:
             if tool_results:
                 summary += " -> used " + ", ".join(r.tool for r in tool_results)
             self.store.add(summary, "episodic", "observed", 0.7)
-        notices += self._after_turn(topic, text, answer, state)
+        if self.cfg.fast_mode and getattr(self, "_streaming", False):
+            # the reply is already on screen: learn from the turn afterwards instead of making you wait for it
+            threading.Thread(target=self._after_turn_quietly, args=(topic, text, answer, state), daemon=True,
+                             name="aether-learn").start()
+        else:
+            notices += self._after_turn(topic, text, answer, state)
         if state.contradictions:
             notices += state.contradictions
         if self.tools.taint:
             notices.append(f"Security: {self.tools.taint}. I treated it as data, and any action now needs your OK.")
             state.uncertain_hypotheses.append("prompt injection suspected in retrieved content")
         return Reply(answer, state, notices)
+
+    def _after_turn_quietly(self, topic, text: str, answer: str, state: CognitiveState) -> None:
+        try:
+            for note in self._after_turn(topic, text, answer, state):
+                log.info("learned after the reply: %s", note)
+        except Exception as e:
+            log.warning("learning from the last turn failed: %s", e)
 
     def _after_turn(self, topic, text: str, answer: str, state: CognitiveState) -> list[str]:
         """Selective long-term learning and topic summaries (Phase 2)."""

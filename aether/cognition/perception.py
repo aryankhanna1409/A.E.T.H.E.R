@@ -42,6 +42,22 @@ def is_small_talk(text: str) -> bool:
     return bool(SMALL_TALK.match(text)) and len(text) < 60
 
 
+# Words that mean the message is about the user's own world or asks for an action: those get the full interpretation.
+PERSONAL_OR_ACTION = re.compile(
+    r"\b(i|i'm|i've|i'd|me|my|mine|we|our|us|open|close|launch|play|send|e-?mail|mail|create|make|write|save|delete|"
+    r"remove|move|copy|rename|set|remind|schedule|plan|add|book|find|search|look\s+up|download|install|run|start|stop|"
+    r"turn|organi[sz]e|summari[sz]e|read|check|show|list|compare|optimi[sz]e|every|daily|tomorrow|today|tonight|"
+    r"deadline|file|folder|document|note|calendar|meeting|reminder|todo|to-do|task|goal|routine|remember|forget)\b", re.I)
+
+
+def is_simple(text: str) -> bool:
+    """A short general question or chat line ("what's a black hole?", "tell me a joke"): the rule-based reading is
+    enough, so the model's interpretation pass (several seconds on a 4 GB GPU) is skipped."""
+    words = text.split()
+    return 0 < len(words) <= 14 and not PERSONAL_OR_ACTION.search(text) and not WEB_CUES.search(text) \
+        and not DOC_CUES.search(text)
+
+
 def heuristic_ir(text: str) -> IntentIR:
     """Rule-based perception used when no LLM is loaded or its output is invalid."""
     needs: list = []
@@ -65,19 +81,23 @@ def heuristic_ir(text: str) -> IntentIR:
                     time_expressions=find_expressions(text), confidence=0.5)
 
 
-def perceive(llm: LLMProvider | None, text: str, recent: list[tuple[str, str]], tools: list[str]) -> IntentIR:
+def perceive(llm: LLMProvider | None, text: str, recent: list[tuple[str, str]], tools: list[str],
+             fast: bool = False) -> IntentIR:
     base = heuristic_ir(text)
     if llm is None:
         return base
     if is_small_talk(text):  # fast path: saves a full LLM call (seconds on a 4 GB GPU)
         base.intent, base.confidence, base.needs = "chit_chat", 0.9, ["direct"]
         return base
+    if fast and is_simple(text):
+        base.confidence = 0.8
+        return base
     history = "\n".join(f"{r}: {t[:300]}" for r, t in recent[-4:])
     try:
         ir = structured(llm, [
             Message("system", PERCEPTION_PROMPT.format(tools=", ".join(tools))),
             Message("user", f"Recent conversation:\n{history or '(none)'}\n\nMessage to analyse:\n{text}")],
-            IntentIR, max_tokens=700)
+            IntentIR, max_tokens=500)
     except Exception as e:  # invalid JSON after retry, model error
         log.warning("Neural perception failed (%s); using rule-based IR.", e)
         return base

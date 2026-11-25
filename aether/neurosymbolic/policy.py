@@ -31,10 +31,11 @@ RISK = {
     "mail.draft": 3,  # writes an unsent draft file; AETHER can never send mail  # only ever AETHER's own aether.ics; asks unless you auto-approve it  # running a routine is harmless by itself: every step inside it is checked on its own
     "web.search": 2, "web.fetch": 2,
     "fs.create": 3, "fs.modify": 4, "app.open": 4, "autonomy": 3, "fs.move": 4,
+    "app.close": 4, "screen.save": 2, "ui.self": 1,
     "fs.delete": 5, "shell": 5, "ui.automation": 5, "screen.observe": 4, "message.send": 5,
 }
 ALWAYS_CONFIRM = {"fs.delete", "shell", "ui.automation", "message.send", "fs.modify", "fs.move",
-                  "screen.observe", "app.open", "autonomy", "system.power"}
+                  "screen.observe", "app.open", "app.close", "autonomy", "system.power"}
 
 
 @dataclass

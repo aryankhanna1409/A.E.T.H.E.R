@@ -7,6 +7,8 @@ request until you press Allow or Deny (or 120 s pass, which counts as Deny).
 from __future__ import annotations
 
 import argparse
+import os
+import re
 import threading
 import time
 import uuid
@@ -545,7 +547,12 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     @app.post("/api/reminders")
     def add_reminder(body: ReminderIn):
-        return aether.reminders.add(body.text, body.when or "tomorrow").__dict__
+        from ..memory.prospective import parse_at, parse_repeat
+        when = body.when or "today"
+        repeat, at = parse_repeat(when), parse_at(when)   # "every day at 9pm" works here too
+        day = "" if repeat else re.sub(r"\b(?:at\s+)?\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm)?\b|\b(?:morning|evening|night|tonight)\b",
+                                       "", when).strip() or ("today" if at else when)
+        return aether.reminders.add(body.text, day, repeat, at).__dict__
 
     @app.post("/api/reminders/{rid}")
     def reminder_status(rid: int, status: str = "done"):
@@ -835,6 +842,7 @@ def main(argv: list[str] | None = None) -> int:
     app = create_app(args.config)
     if not args.no_browser:
         threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{args.port}")).start()
+    os.environ["AETHER_URL"] = f"http://127.0.0.1:{args.port}"   # so "open the HUD" opens this server
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     return 0
 

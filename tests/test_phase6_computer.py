@@ -64,7 +64,8 @@ def test_screen_and_ui_are_off_by_default(make_aether):
     assert "off" in call(a, "ui_type", window="Notepad", text="hi").output
 
 
-def test_apps_allowlist(make_aether):
+def test_apps_allowlist(make_aether, cfg):
+    cfg.security.open_any_app = False   # allowlist only
     a = make_aether()
     assert "not in the allowed apps" in call(a, "app_open", name="regedit").output
     assert a.policy.evaluate("app.open").decision == Decision.CONFIRM

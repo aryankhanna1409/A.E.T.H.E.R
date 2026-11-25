@@ -19,6 +19,15 @@ const ago = (t) => {
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`; return new Date(t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 };
 
+function repeatText(r) {
+  const days = { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" };
+  if (r === "daily") return "every day";
+  if (r === "weekdays") return "every weekday";
+  if (r === "weekends") return "every weekend";
+  const [k, v] = r.split(":");
+  return k === "weekly" ? `every ${days[v] || v}` : k === "every" ? `every ${v} days` : r;
+}
+
 async function api(path, opts = {}) {
   const init = { ...opts, headers: { ...(opts.body && !(opts.body instanceof FormData) ? { "Content-Type": "application/json" } : {}), ...(opts.headers || {}) } };
   if (init.body && typeof init.body === "object" && !(init.body instanceof FormData)) init.body = JSON.stringify(init.body);
@@ -461,7 +470,7 @@ RENDER.today = async (p) => {
     <div class="grid two">
       <div class="card"><h3><span class="grow">Briefing</span><button class="ghost" id="hear">☀ Hear it</button></h3><div class="md" id="brief-text">${markdown(b.text)}</div></div>
       <div class="card"><h3><span class="grow">Reminders</span></h3><div id="rem"></div>
-        <div class="row" style="margin-top:12px"><input class="field" id="rem-text" placeholder="Remind me to…" style="flex:2"><input class="field" id="rem-when" placeholder="when (friday, 2026-12-01)" style="flex:1"><button class="ghost" id="rem-add">Add</button></div></div>
+        <div class="row" style="margin-top:12px"><input class="field" id="rem-text" placeholder="Remind me to…" style="flex:2"><input class="field" id="rem-when" placeholder="when (friday, every day at 9pm)" style="flex:1"><button class="ghost" id="rem-add">Add</button></div></div>
       <div class="card" id="deadlines"></div>
       <div class="card" id="focus"></div>
       <div class="card"><h3>Goals</h3>${b.goals.map(g => `<div class="item"><div class="grow">${esc(g.text)}<div class="meta">#${g.id}</div></div><span class="chip ${g.status === "done" ? "good" : g.status === "failed" ? "bad" : "accent"}">${g.status}</span></div>`).join("") || `<div class="empty">No goals yet. Ask AETHER to work on something in the background.</div>`}</div>
@@ -477,11 +486,11 @@ RENDER.today = async (p) => {
   $("#hear", p).onclick = () => { HUD.open(); HUD.ask("brief me"); };
   api("/api/briefing").then(x => { const t = $("#brief-text", p); if (t) t.innerHTML = markdown(x.text); }).catch(() => {});  // adds weather and news when online
   const rem = $("#rem", p);
-  rem.innerHTML = b.reminders.map(r => `<div class="item"><div class="grow">${esc(r.text)}<div class="meta">due ${esc(r.due)}</div></div><div class="actions"><button class="ghost" data-r="${r.id}" data-s="done">Done</button><button class="icon-btn" data-r="${r.id}" data-s="dismissed" title="Dismiss">✕</button></div></div>`).join("") || `<div class="empty">Nothing due. Say "remind me to…" in chat or add one here.</div>`;
+  rem.innerHTML = b.reminders.map(r => `<div class="item"><div class="grow">${esc(r.text)}<div class="meta">${r.repeat ? esc(repeatText(r.repeat)) + " · next " + esc(r.due) : "due " + esc(r.due)}${r.at ? " at " + esc(r.at) : ""}</div></div><div class="actions"><button class="ghost" data-r="${r.id}" data-s="done">Done</button><button class="icon-btn" data-r="${r.id}" data-s="dismissed" title="Dismiss">✕</button></div></div>`).join("") || `<div class="empty">Nothing due. Say "remind me to… every day at 9pm" in chat or add one here.</div>`;
   $$("[data-r]", rem).forEach(x => x.onclick = async () => { await api(`/api/reminders/${x.dataset.r}?status=${x.dataset.s}`, { method: "POST" }); go("today"); });
   $("#rem-add", p).onclick = async () => {
     const text = $("#rem-text", p).value.trim(); if (!text) return;
-    try { const r = await api("/api/reminders", { method: "POST", body: { text, when: $("#rem-when", p).value.trim() || "tomorrow" } }); toast("Reminder set", `${r.text} · ${r.due}`); } catch (e) { toast("Couldn't add", e.message, "error"); }
+    try { const r = await api("/api/reminders", { method: "POST", body: { text, when: $("#rem-when", p).value.trim() || "today" } }); toast("Reminder set", `${r.text} · ${r.due}`); } catch (e) { toast("Couldn't add", e.message, "error"); }
     go("today");
   };
   $("#plan", p).onclick = () => { go("chat"); Chat.t.value = "Give me a quick plan for today based on my reminders and goals."; Chat.send(); };
