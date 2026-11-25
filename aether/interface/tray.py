@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -25,10 +26,13 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-from ..core.logging import log, setup_logging
+from ..core.logging import ensure_streams, log, log_dir, setup_logging
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_NAME = "AETHER"
+ROOT = Path(__file__).resolve().parents[2]   # the install folder, e.g. C:\AETHER
+LOCK_PORT = 8768                             # one tray at a time
+SERVER_WAIT_S = 300                          # the first load of a 7B model can take a few minutes
 
 
 # ---------------------------------------------------------------- pure helpers (tested)
@@ -44,13 +48,39 @@ def pynput_hotkey(spec: str) -> str:
     return "+".join(f"<{'cmd' if p == 'win' else p}>" if p in named else p for p in parts)
 
 
-def startup_command(python: str | None = None) -> str:
+def console_python(python: str | None = None) -> str:
+    """python.exe next to pythonw.exe: the server runs with it (hidden), so its output can go to a log file."""
+    exe = Path(python or sys.executable)
+    console = exe.with_name("python.exe")
+    return str(console) if exe.name.lower() == "pythonw.exe" and console.exists() else str(exe)
+
+
+def startup_command(python: str | None = None, config: str | None = None) -> str:
     """The command Windows runs at sign-in: pythonw (no console window) -m aether.interface.tray."""
     exe = Path(python or sys.executable)
     windowless = exe.with_name("pythonw.exe")
     if exe.name.lower() == "python.exe" and windowless.exists():
         exe = windowless
-    return f'"{exe}" -m aether.interface.tray --quiet-start'
+    cmd = f'"{exe}" -m aether.interface.tray --quiet-start'
+    return cmd + (f' --config "{Path(config).resolve()}"' if config else "")
+
+
+def single_instance(port: int | None = None) -> socket.socket | None:
+    """Hold a local port as a lock so only one tray runs. None if another one already does."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", LOCK_PORT if port is None else port))
+        return s
+    except OSError:
+        s.close()
+        return None
+
+
+def log_tail(path: Path, lines: int = 6) -> str:
+    try:
+        return "\n".join(path.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-lines:])
+    except OSError:
+        return ""
 
 
 def app_window_command(url: str) -> list[str] | None:
@@ -92,6 +122,7 @@ class Tray:
         self.server: subprocess.Popen | None = None
         self.nova: subprocess.Popen | None = None
         self.icon = None
+        self.server_log = log_dir() / "server.log"
         self._stop = threading.Event()
 
     # ---- server
@@ -109,18 +140,31 @@ class Tray:
         except Exception:
             return False
 
-    def ensure_server(self, wait_s: float = 90) -> bool:
+    def server_command(self) -> list[str]:
+        cmd = [console_python(), "-m", "aether.interface.server", "--no-browser", "--port", str(self.port)]
+        return cmd + (["--config", self.config] if self.config else [])
+
+    def ensure_server(self, wait_s: float = SERVER_WAIT_S) -> bool:
+        """Start the server hidden, with its output in logs\\server.log, and wait until it answers."""
         if self.alive():
             return True
-        cmd = [sys.executable, "-m", "aether.interface.server", "--no-browser", "--port", str(self.port)]
-        if self.config:
-            cmd += ["--config", self.config]
+        self.server_log.parent.mkdir(parents=True, exist_ok=True)
+        if self.server_log.exists() and self.server_log.stat().st_size > 5_000_000:
+            self.server_log.replace(self.server_log.with_suffix(".old.log"))
+        out = open(self.server_log, "a", encoding="utf-8")
+        out.write(f"\n---- starting AETHER server {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        out.flush()
         flags = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
-        self.server = subprocess.Popen(cmd, creationflags=flags)
+        self.server = subprocess.Popen(self.server_command(), cwd=str(ROOT), stdout=out, stderr=subprocess.STDOUT,
+                                       stdin=subprocess.DEVNULL, creationflags=flags)
+        out.close()
         end = time.time() + wait_s  # loading the model takes a while on first start
         while time.time() < end and not self._stop.is_set():
             if self.alive():
                 return True
+            if self.server.poll() is not None:   # it crashed: no point waiting
+                log.error("AETHER server exited with code %s. See %s", self.server.returncode, self.server_log)
+                return False
             time.sleep(1)
         return False
 
@@ -171,7 +215,7 @@ class Tray:
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
             if on:
-                winreg.SetValueEx(k, APP_NAME, 0, winreg.REG_SZ, startup_command())
+                winreg.SetValueEx(k, APP_NAME, 0, winreg.REG_SZ, startup_command(config=self.config))
             else:
                 try:
                     winreg.DeleteValue(k, APP_NAME)
@@ -219,7 +263,28 @@ class Tray:
         if self.server is not None:
             self.server.terminate()
 
-    def run(self, quiet_start: bool = False) -> int:  # pragma: no cover - needs a desktop session
+    def turn_on_startup_once(self) -> None:
+        """Turn on "Start with Windows" the first time AETHER is started, so a reboot needs no steps.
+        Only once: if you untick it later in the tray menu, it stays off."""
+        from .nova import load_settings, save_settings
+        if sys.platform != "win32" or load_settings().get("startup_set"):
+            return
+        try:
+            self.set_startup(True)
+            save_settings({"startup_set": True})
+        except Exception as e:  # pragma: no cover - Windows only
+            log.warning("couldn't turn on Start with Windows: %s", e)
+
+    def show_nova(self) -> None:
+        from .nova import enabled as nova_enabled
+        if nova_enabled():
+            try:
+                self.start_nova()
+            except Exception as e:  # e.g. Python installed without Tk: the tray still works
+                log.warning("Nova didn't start: %s", e)
+
+    def run(self, quiet_start: bool = False, open_app: bool = False) -> int:  # pragma: no cover - needs a desktop
+
         import pystray
         from pynput import keyboard
 
@@ -245,16 +310,17 @@ class Tray:
 
         def started(icon):
             icon.visible = True
+            self.show_nova()             # straight away: Nova sleeps (grey) until the server is up
+            self.turn_on_startup_once()
+            if not self.alive() and not quiet_start:
+                self.notify("AETHER is starting", "Loading the model. This takes a minute or two.")
             if not self.ensure_server():
-                self.notify("AETHER", "The server didn't start. Run aether-server in a terminal to see why.")
+                tail = log_tail(self.server_log, 2)
+                self.notify("AETHER didn't start", f"Details in {self.server_log}" + (f"\n{tail}" if tail else ""))
                 return
-            from .nova import enabled as nova_enabled
-            if nova_enabled():
-                try:
-                    self.start_nova()
-                except Exception as e:  # e.g. Python installed without Tk: the tray still works
-                    log.warning("Nova didn't start: %s", e)
-            if not quiet_start:
+            if open_app:
+                self.open()
+            elif not quiet_start:
                 self.notify("AETHER is ready", f"Press {self.hotkey.upper()} anywhere to talk.")
             threading.Thread(target=self._poll_loop, daemon=True).start()
 
@@ -274,7 +340,9 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - needs a de
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--hotkey", default="ctrl+alt+j", help="global hotkey for the voice HUD (default ctrl+alt+j)")
     ap.add_argument("--quiet-start", action="store_true", help="no 'ready' notification (used at sign-in)")
+    ap.add_argument("--open", action="store_true", help="open the app once the server is ready (start.bat)")
     args = ap.parse_args(argv)
+    ensure_streams("tray")
     setup_logging("INFO")
     pynput_hotkey(args.hotkey)  # fail early on a bad hotkey
     try:
@@ -283,7 +351,22 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - needs a de
     except ImportError:
         print('The tray needs extra packages: pip install -e ".[tray]"')
         return 1
-    return Tray(args.port, args.hotkey, config=args.config).run(args.quiet_start)
+    config = args.config
+    if config is None and Path("aether.toml").exists():
+        config = str(Path("aether.toml").resolve())   # remembered for "Start with Windows"
+    tray = Tray(args.port, args.hotkey, config=config)
+    lock = single_instance()
+    if lock is None:   # already running (e.g. started at sign-in): just show the app
+        if args.open:
+            end = time.time() + SERVER_WAIT_S
+            while time.time() < end and not tray.alive():
+                time.sleep(1)
+            tray.open()
+        return 0
+    try:
+        return tray.run(args.quiet_start, open_app=args.open)
+    finally:
+        lock.close()
 
 
 if __name__ == "__main__":

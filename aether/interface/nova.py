@@ -31,7 +31,7 @@ NAME = "Nova"
 BLUE = (58, 160, 255)      # Jarvis blue
 AMBER = (255, 176, 32)     # orange-yellow
 SLEEP = (92, 110, 132)     # server not reachable
-SIZE = 112                 # window size in px; the orb itself is about half of it
+SIZE = 72                  # window size in px, small like a desktop pet; the orb is about half of it
 KEY = "#010203"            # colour made transparent on Windows
 LOCK_PORT = 8767           # one Nova at a time
 STATES = ("idle", "listening", "thinking", "speaking", "offline")
@@ -72,7 +72,7 @@ def is_click(dx: float, dy: float, threshold: float = 4) -> bool:
 
 def default_position(screen_w: int, screen_h: int, size: int = SIZE) -> tuple[int, int]:
     """Bottom-right corner, just above the taskbar."""
-    return max(0, screen_w - size - 24), max(0, screen_h - size - 72)
+    return max(0, screen_w - size - 16), max(0, screen_h - size - 56)
 
 
 def clamp_position(x: int, y: int, screen_w: int, screen_h: int, size: int = SIZE) -> tuple[int, int]:
@@ -303,6 +303,8 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - needs a de
     ap = argparse.ArgumentParser(prog="aether-nova", description="Nova, AETHER's desktop companion.")
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args(argv)
+    from ..core.logging import ensure_streams
+    ensure_streams("nova")
     lock = single_instance()
     if lock is None:
         return 0

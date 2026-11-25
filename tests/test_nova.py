@@ -25,7 +25,7 @@ def test_mix_hex_and_pulse():
 def test_click_versus_drag_and_positions():
     assert nova.is_click(2, 3) and not nova.is_click(5, 0)
     x, y = nova.default_position(1920, 1080)
-    assert (x, y) == (1920 - nova.SIZE - 24, 1080 - nova.SIZE - 72)
+    assert (x, y) == (1920 - nova.SIZE - 16, 1080 - nova.SIZE - 56)
     assert nova.clamp_position(5000, -40, 1920, 1080) == (1920 - nova.SIZE, 0)
 
 

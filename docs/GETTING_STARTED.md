@@ -96,15 +96,17 @@ It lists what's fine, what's optional, and the exact fix for anything wrong. Fix
 
 ## 7. Start it
 
-Double-click **`C:\AETHER\start.bat`**. AETHER does three things:
-- It appears in the system tray (click the `^` arrow next to the clock if you can't see it).
-- It loads the model, which takes about a minute the first time.
-- It opens the app at <http://127.0.0.1:8765>. If the page doesn't load, wait a moment and refresh.
+Double-click **`C:\AETHER\start.bat`**. No window stays open. AETHER then:
+- shows **Nova**, a small orb, in the bottom-right corner straight away (grey and asleep while the model loads),
+- appears in the system tray (click the `^` arrow next to the clock if you can't see it),
+- loads the model, which takes a minute or two, and then opens the app by itself,
+- turns on **Start with Windows**, so after a restart it starts on its own and you don't run anything. Untick it in the tray menu if you don't want that.
+
+If the app never opens, the reason is in `%LOCALAPPDATA%\AETHER\logs\server.log` (paste that into the Explorer address bar).
 
 Things to try:
 - **Ctrl+Alt+J** anywhere opens the voice screen. Hold **Space** and say "good morning".
 - In chat: "set a timer for 10 minutes for the pasta", "play lofi on youtube", "what's 15% of 2400", "take a note: buy a LiPo", "what's on tomorrow?", "remind me to submit the essay on friday".
-- Right-click the tray icon to tick **Start with Windows**, so it's always there.
 
 For hands-free "hey Jarvis" voice (wake word, always listening):
 
@@ -128,7 +130,7 @@ You can wake it with **"hey Jarvis"** or just **"hey Nova"**, and say a command 
 
 ### Meet Nova, your desktop companion
 
-When AETHER runs from the tray (`start.bat`), **Nova** appears in the bottom-right corner: a small glowing orb with eyes that stays on top of your windows.
+Whenever AETHER is running (from `start.bat` or after a restart), **Nova** sits in the bottom-right corner: a small glowing orb with eyes that stays on top of your windows.
 
 - **Blue** and breathing when idle (it blinks and glances at your mouse pointer).
 - **Amber** with wide eyes when listening, and with a spinning ring when thinking.
@@ -179,6 +181,6 @@ powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -Cuda
 | "Out of memory" / crash on load | In `aether.toml`, lower `[llm] gpu_layers` (try 16), or run `scripts\tune_gpu.py` |
 | No sound / it doesn't hear me | Windows Settings → Privacy & security → Microphone → allow desktop apps. Check `doctor.py` |
 | Weather or news missing | Set `[online] location`, and make sure `[security] network = true` |
-| The page at 127.0.0.1:8765 won't load | Wait a minute on first start. If it still fails, run `.\.venv\Scripts\aether-server` in PowerShell to see the error |
+| The page at 127.0.0.1:8765 won't load | Wait a minute or two on first start. If it still fails, open `%LOCALAPPDATA%\AETHER\logs\server.log`, or run `.\.venv\Scripts\aether-server` in PowerShell to see the error |
 
 Everything AETHER knows about you lives in `%LOCALAPPDATA%\AETHER` (encrypted; paste that into the Explorer address bar to open it). To start fresh, delete that folder.

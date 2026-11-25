@@ -66,3 +66,48 @@ def test_tray_relays_notifications_and_respects_pause():
         assert "POST /api/stop" in FakeServer.hits and shown[-1][0] == "Emergency stop"
     finally:
         srv.shutdown()
+
+
+def test_startup_remembers_the_config_and_server_uses_console_python(tmp_path):
+    from aether.interface.tray import console_python
+    (tmp_path / "pythonw.exe").write_text("")
+    (tmp_path / "python.exe").write_text("")
+    cmd = startup_command(str(tmp_path / "python.exe"), config=str(tmp_path / "aether.toml"))
+    assert cmd.endswith(f'--quiet-start --config "{tmp_path / "aether.toml"}"')
+    assert console_python(str(tmp_path / "pythonw.exe")) == str(tmp_path / "python.exe")
+    t = Tray(port=8799, config="C:/AETHER/aether.toml")
+    assert t.server_command()[1:] == ["-m", "aether.interface.server", "--no-browser", "--port", "8799",
+                                      "--config", "C:/AETHER/aether.toml"]
+
+
+def test_only_one_tray_runs(monkeypatch):
+    from aether.interface import tray
+    first = tray.single_instance(0)
+    port = first.getsockname()[1]
+    assert tray.single_instance(port) is None
+    first.close()
+
+
+def test_a_crashing_server_is_logged_and_reported_quickly(tmp_path):
+    import sys
+    import time
+    t = Tray(port=9)   # nothing answers there
+    t.server_log = tmp_path / "logs" / "server.log"
+    t.server_command = lambda: [sys.executable, "-c", "import sys; print('model file not found'); sys.exit(3)"]
+    start = time.time()
+    assert t.ensure_server(wait_s=60) is False and time.time() - start < 20
+    from aether.interface.tray import log_tail
+    assert "model file not found" in log_tail(t.server_log)
+
+
+def test_pythonw_streams_go_to_a_log_file(tmp_path, monkeypatch):
+    import sys
+    from aether.core import logging as alog
+    monkeypatch.setenv("AETHER_HOME", str(tmp_path))
+    assert alog.ensure_streams("x") is None          # a normal console: nothing to do
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    path = alog.ensure_streams("server")
+    print("hello from pythonw")
+    sys.stdout.isatty()                               # uvicorn calls this; it crashed on None
+    assert path == tmp_path / "logs" / "server.log" and "hello from pythonw" in path.read_text()
