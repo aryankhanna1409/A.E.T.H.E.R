@@ -764,6 +764,11 @@ def create_app(config_path: str | None = None) -> FastAPI:
     def notifications():
         return {"items": [n.__dict__ for n in aether.proactive.deliver()], "held": aether.proactive.held()}
 
+    @app.get("/api/alarms")
+    def alarms(after: float = 0.0):
+        """Timers and timed reminders that rang after `after` (the always-listening voice says them aloud)."""
+        return {"items": aether.proactive.alarms_since(after), "now": time.time()}
+
     @app.post("/api/notifications/{nid}/dismiss")
     def dismiss(nid: int):
         aether.proactive.dismiss(nid)

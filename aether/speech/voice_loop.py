@@ -59,6 +59,16 @@ class RemoteAether:
             reply = "I can't reach the AETHER server right now."
         return types.SimpleNamespace(text=reply)
 
+    def alarms(self, after: float) -> tuple[list[dict], float]:
+        import json
+        import urllib.request
+        try:
+            with urllib.request.urlopen(f"{self.base}/api/alarms?after={after}", timeout=3) as r:
+                d = json.loads(r.read())
+            return d.get("items", []), float(d.get("now", after))
+        except Exception:
+            return [], after
+
     def alive(self) -> bool:
         import urllib.request
         try:
@@ -332,6 +342,24 @@ class VoiceAssistant:
             elif not self.seg.started and self.follow_up_until and time.time() > self.follow_up_until:
                 self.state, self.follow_up_until = "idle", 0.0
 
+    def say_alarms(self, brain: "RemoteAether", poll_s: float = 2.0) -> None:
+        """With the server's brain: say timers and timed reminders out loud when they go off on the server."""
+        import re as _re
+        after = None
+        while self.running and after is None:   # start from the server's "now": only alarms from here on
+            _, now = brain.alarms(1e12)
+            after = now if now < 1e12 else None
+            if after is None:
+                time.sleep(poll_s)
+        while self.running:
+            time.sleep(poll_s)
+            items, now = brain.alarms(after)
+            for it in items:
+                after = max(after, it["created"])
+                line = _re.sub(r"[^\w\s:,.'!?-]", "", f"{it['title']}. {it['body']}").strip()
+                if self.state != "speaking" and line:
+                    threading.Thread(target=self.tts.say, args=(line,), daemon=True).start()
+
     def ring(self, timer, title: str) -> None:
         """A timer or alarm went off: say it, unless AETHER is in the middle of a sentence."""
         what = timer.label or ("your alarm" if timer.kind == "alarm" else "your timer")
@@ -387,6 +415,7 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - needs a mi
             time.sleep(2)
         profile = SpeechProfile.for_home(cfg.home, cfg.user_name, brain.hotwords())
         va = VoiceAssistant(brain, cfg.voice, profile=profile)
+        threading.Thread(target=va.say_alarms, args=(brain,), daemon=True, name="aether-alarms").start()
     else:
         from ..app import build
         from ..interface.cli import ask

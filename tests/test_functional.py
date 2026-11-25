@@ -213,3 +213,17 @@ def test_quick_commands_stay_in_the_conversation(make_aether):
     turns = a.conversations.history(a.session)
     assert [t["role"] for t in turns] == ["user", "assistant"] * 2
     assert "buy milk" in turns[1]["text"]
+
+
+def test_alarms_feed_for_the_voice_listener(make_aether):
+    from fastapi.testclient import TestClient
+    from aether.interface import server
+    a = make_aether(FakeLLM())
+    server.build = lambda *args, **kw: (a, None)
+    c = TestClient(server.create_app())
+    start = c.get("/api/alarms", params={"after": 1e12}).json()["now"]
+    a.timers.add(0, "pasta")
+    a.proactive.ring()
+    items = c.get("/api/alarms", params={"after": start - 1}).json()["items"]
+    assert len(items) == 1 and "pasta" in items[0]["title"]
+    assert c.get("/api/status").json()["version"]
