@@ -368,7 +368,8 @@ class Aether:
             self.llm = TracingLLM(raw_llm, rec)
         self._active_turns = getattr(self, "_active_turns", 0) + 1   # the indexer waits while this is > 0
         try:
-            reply = self._handle(text)
+            with self.tools.asking(text):
+                reply = self._handle(text)
         except Exception as e:
             self.meta.record_turn(CognitiveState(), (time.perf_counter() - start) * 1000, "error", "", [], str(e))
             raise

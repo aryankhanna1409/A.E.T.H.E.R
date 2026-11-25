@@ -8,6 +8,10 @@ from typing import Callable
 
 from ..core.logging import AuditLog, log
 from ..neurosymbolic.policy import Decision, PolicyEngine, PolicyResult
+import re
+import threading
+from contextlib import contextmanager
+
 from ..security import injection
 
 Confirm = Callable[[str], bool]
@@ -48,6 +52,32 @@ class ToolRegistry:
         self.tools: dict[str, Tool] = {}
         self.listeners: list = []  # called with every ToolResult (metacognition)
         self.taint: str = ""  # non-empty once injected instructions were read this turn/goal
+        self.run_when_asked: set[str] = set(getattr(getattr(policy, "sec", None), "run_when_asked", []) or [])
+        self._asked = threading.local()   # what you said this turn, on this thread only (not background goals)
+
+    @contextmanager
+    def asking(self, text: str):
+        """Tool calls made inside this block answer something you just said."""
+        self._asked.text = text
+        try:
+            yield
+        finally:
+            self._asked.text = ""
+
+    def asked_for(self, category: str, args: dict[str, str]) -> bool:
+        """Did your own words this turn ask for exactly this action? Only then may it skip the Allow box."""
+        said = (getattr(self._asked, "text", "") or "").lower()
+        if not said or category not in self.run_when_asked:
+            return False
+        if category == "system.power":
+            act = str(args.get("action", "")).lower()
+            words = {"shutdown": r"shut\s*down|power\s*off|turn\s*off", "restart": r"restart|reboot",
+                     "sleep": r"sleep", "lock": r"\block", "cancel": r"cancel|stop|abort"}.get(act)
+            return bool(words and re.search(words, said))
+        if category == "app.open":
+            name = str(args.get("name", "")).lower().strip()
+            return bool(name) and name in said and bool(re.search(r"\b(open|launch|start|run|fire up|pull up)\b", said))
+        return True
 
     def mark_tainted(self, where: str, hits: list[str]) -> None:
         if hits and not self.taint:
@@ -93,6 +123,8 @@ class ToolRegistry:
         if verdict.decision == Decision.DENY:
             self.audit.record(tool.category, target, False, verdict.reason)
             return ToolResult(name, False, f"Blocked by policy: {verdict.reason}", "deny")
+        if verdict.decision == Decision.CONFIRM and not self.taint and self.asked_for(tool.category, args):
+            verdict = PolicyResult(Decision.ALLOW, "you asked for it (security.run_when_asked)")
         if verdict.decision == Decision.CONFIRM:
             if not self.confirm(f"{tool.name} {args}\nReason it needs approval: {verdict.reason}"):
                 self.audit.record(tool.category, target, False, "user declined")
