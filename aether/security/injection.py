@@ -33,9 +33,9 @@ BLOCK_TAGS = re.compile(r"<(/?)\s*(user_message|tool_output|documents|memory|web
 TEMPLATE = re.compile(r"<\|([a-z_]+)\|>", re.I)
 
 # Categories that only read; still allowed without an extra question while tainted.
-SAFE_WHEN_TAINTED = {"fs.read", "fs.list", "fs.search", "kg", "optimize", "web.search", "calendar", "mail.read"}
+SAFE_WHEN_TAINTED = {"fs.read", "fs.list", "fs.search", "kg", "optimize", "web.search", "calendar", "mail.read", "clipboard.read", "timer", "system.media"}
 # Categories whose OUTPUT is untrusted and gets scanned.
-UNTRUSTED_OUTPUT = {"fs.read", "fs.search", "web.search", "web.fetch", "screen.observe", "calendar", "mail.read"}
+UNTRUSTED_OUTPUT = {"fs.read", "fs.search", "web.search", "web.fetch", "screen.observe", "calendar", "mail.read", "clipboard.read"}
 
 
 def scan(text: str) -> list[str]:

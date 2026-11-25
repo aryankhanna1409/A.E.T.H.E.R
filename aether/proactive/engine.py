@@ -50,6 +50,7 @@ class ProactiveEngine:
                 self._queue("goal", "", "", f"goal:{g['id']}:{g['status']}", delivered=True)
         self._stop = threading.Event()
         self.battery_probe = _battery  # swappable in tests
+        self.listeners: list = []  # called with each ringing timer, e.g. the voice loop says it out loud
 
     # ---------------------------------------------------------- policy
     def quiet(self, now: datetime) -> bool:
@@ -58,7 +59,7 @@ class ProactiveEngine:
 
     def _delivered_last_hour(self, now: datetime) -> int:
         with self.lock:
-            return self.db.execute("SELECT COUNT(*) FROM notifications WHERE delivered>=? AND kind!='silent'",
+            return self.db.execute("SELECT COUNT(*) FROM notifications WHERE delivered>=? AND kind NOT IN ('silent', 'timer')",
                                    (now.timestamp() - 3600,)).fetchone()[0]
 
     def _queue(self, kind: str, title: str, body: str, key: str, delivered: bool = False) -> bool:
@@ -75,7 +76,7 @@ class ProactiveEngine:
         now = now or datetime.now()
         if not self.cfg.enabled:
             return 0
-        n = 0
+        n = self.ring(now)
         day = now.date().isoformat()
         for r in self.a.reminders.due(now.date()):
             n += self._queue("reminder", "Reminder", f"{r.text} (due {r.due})", f"reminder:{r.id}:{day}")
@@ -165,6 +166,25 @@ class ProactiveEngine:
                            "heavy work light." if step == "low" else "Battery is nearly empty. Save your work and plug in.",
                            f"battery:{day}:{step}")
 
+    def ring(self, now: datetime | None = None) -> int:
+        """Timers and alarms that are due. They ignore quiet hours and the hourly limit: you set them."""
+        timers = getattr(self.a, "timers", None)
+        if timers is None:
+            return 0
+        n = 0
+        for t in timers.due((now or datetime.now()).timestamp()):
+            timers.finish(t.id)
+            title = ("⏰ " + (t.label[:1].upper() + t.label[1:] if t.label else "Alarm")) if t.kind == "alarm" else \
+                f"⏱ Timer done{': ' + t.label if t.label else ''}"
+            body = f"It's {datetime.fromtimestamp(t.due):%H:%M}." if t.kind == "alarm" else "Time's up."
+            n += self._queue("timer", title, body, f"timer:{t.id}")
+            for fn in list(self.listeners):
+                try:
+                    fn(t, title)
+                except Exception:
+                    log.exception("timer listener failed")
+        return n
+
     def _exists(self, key: str) -> bool:
         with self.lock:
             return self.db.execute("SELECT 1 FROM notifications WHERE key=?", (key,)).fetchone() is not None
@@ -223,20 +243,27 @@ class ProactiveEngine:
             self.db.execute("UPDATE notifications SET dismissed=1 WHERE kind='event' AND delivered IS NULL AND created<?",
                             (now.timestamp() - max(1, self.cfg.event_alert_minutes) * 60,))
             self.db.commit()
+        with self.lock:  # timers always ring, quiet hours or not
+            urgent = self.db.execute("SELECT id, kind, title, body, created FROM notifications WHERE delivered IS NULL "
+                                     "AND dismissed=0 AND kind='timer' ORDER BY id").fetchall()
+            for r in urgent:
+                self.db.execute("UPDATE notifications SET delivered=? WHERE id=?", (now.timestamp(), r[0]))
+            self.db.commit()
+        urgent = [Notification(*r) for r in urgent]
         if self.quiet(now):
-            return []
+            return urgent
         room = self.cfg.max_per_hour - self._delivered_last_hour(now)
         if room <= 0:
-            return []
+            return urgent
         order = ("CASE kind WHEN 'event' THEN 0 WHEN 'battery' THEN 0 WHEN 'reminder' THEN 1 WHEN 'checkin' THEN 2 "
                  "WHEN 'goal' THEN 3 ELSE 4 END")
         with self.lock:
             rows = self.db.execute(f"SELECT id, kind, title, body, created FROM notifications WHERE delivered IS NULL "
-                                   f"AND dismissed=0 ORDER BY {order}, id LIMIT ?", (room,)).fetchall()
+                                   f"AND dismissed=0 AND kind!='timer' ORDER BY {order}, id LIMIT ?", (room,)).fetchall()
             for r in rows:
                 self.db.execute("UPDATE notifications SET delivered=? WHERE id=?", (now.timestamp(), r[0]))
             self.db.commit()
-        return [Notification(*r) for r in rows]
+        return urgent + [Notification(*r) for r in rows]
 
     def held(self) -> int:
         with self.lock:
@@ -255,8 +282,15 @@ class ProactiveEngine:
                     self.tick()
                 except Exception:
                     log.exception("proactive tick failed")
+        def timer_loop():  # timers need to ring on the second, not on the next minute's tick
+            while not self._stop.wait(1.0):
+                try:
+                    self.ring()
+                except Exception:
+                    log.exception("timer check failed")
         t = threading.Thread(target=loop, daemon=True, name="aether-proactive")
         t.start()
+        threading.Thread(target=timer_loop, daemon=True, name="aether-timers").start()
         return t
 
     def stop(self) -> None:

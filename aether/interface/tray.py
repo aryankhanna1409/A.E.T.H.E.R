@@ -85,7 +85,7 @@ def make_icon(size: int = 64, active: bool = True):
 
 # ---------------------------------------------------------------- the tray app
 class Tray:
-    def __init__(self, port: int = 8765, hotkey: str = "ctrl+alt+j", poll_s: int = 30, config: str | None = None):
+    def __init__(self, port: int = 8765, hotkey: str = "ctrl+alt+j", poll_s: int = 5, config: str | None = None):
         self.base = f"http://127.0.0.1:{port}"
         self.port, self.hotkey, self.poll_s, self.config = port, hotkey, poll_s, config
         self.paused = False

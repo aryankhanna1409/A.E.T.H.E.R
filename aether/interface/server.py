@@ -285,6 +285,24 @@ def create_app(config_path: str | None = None) -> FastAPI:
         aether.audit.record("calendar.write", f"{ev.title} @ {ev.start.isoformat()}", True, "added by you in the app")
         return {**ev.as_dict(), "clash": [e.as_dict() for e in clash]}
 
+    @app.get("/api/timers")
+    def timers():
+        now = time.time()
+        return {"items": [{"id": t.id, "label": t.label, "kind": t.kind, "due": t.due, "left": max(0, t.due - now)}
+                          for t in aether.timers.running()]}
+
+    @app.post("/api/timers")
+    def add_timer(body: Text):
+        r = aether.tools.call("timer", {"duration": body.text})
+        if not r.ok or not r.output.startswith("Timer set"):
+            raise HTTPException(400, r.output)
+        return {"text": r.output}
+
+    @app.delete("/api/timers/{tid}")
+    def cancel_timer(tid: int):
+        aether.timers.finish(tid, "cancelled")
+        return {"ok": True}
+
     @app.get("/api/briefing")
     def briefing(online: bool = True):
         b = aether.briefing(online=online and aether.cfg.security.network)

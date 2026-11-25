@@ -23,6 +23,10 @@ class Decision(str, Enum):
 RISK = {
     "fs.read": 1, "fs.list": 1, "fs.search": 1, "memory": 1, "kg": 1, "optimize": 1,
     "routine": 1, "calendar": 1,
+    "timer": 1, "system.media": 1, "clipboard.write": 1,
+    "clipboard.read": 1,  # only when you ask ("summarise what I copied"); output is treated as untrusted
+    "web.open": 2,  # opens a page in your browser; auto-approved by default (security.auto_approve)
+    "system.power": 4,  # lock / sleep / restart / shut down: always asks
     "calendar.write": 2, "mail.read": 1,
     "mail.draft": 3,  # writes an unsent draft file; AETHER can never send mail  # only ever AETHER's own aether.ics; asks unless you auto-approve it  # running a routine is harmless by itself: every step inside it is checked on its own
     "web.search": 2, "web.fetch": 2,
@@ -30,7 +34,7 @@ RISK = {
     "fs.delete": 5, "shell": 5, "ui.automation": 5, "screen.observe": 4, "message.send": 5,
 }
 ALWAYS_CONFIRM = {"fs.delete", "shell", "ui.automation", "message.send", "fs.modify", "fs.move",
-                  "screen.observe", "app.open", "autonomy"}
+                  "screen.observe", "app.open", "autonomy", "system.power"}
 
 
 @dataclass

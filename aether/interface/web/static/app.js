@@ -113,7 +113,23 @@ function notify(title, body) {
 async function pollNotifications() {
   try {
     const r = await api("/api/notifications");
-    for (const n of r.items) { toast(n.title, n.body, "proactive", 15000); if (document.hidden) notify("AETHER · " + n.title, n.body); }
+    for (const n of r.items) {
+      if (n.kind === "timer") chime();
+      toast(n.title, n.body, "proactive", n.kind === "timer" ? 60000 : 15000);
+      if (document.hidden) notify("AETHER · " + n.title, n.body);
+    }
+  } catch {}
+}
+
+// A soft three-note chime for timers and alarms, made with WebAudio (no sound files to ship).
+function chime() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [880, 1175, 1568].forEach((f, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + i * 0.22;
+      o.frequency.value = f; o.type = "sine"; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.25, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.9); o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + 1);
+    });
   } catch {}
 }
 
@@ -838,4 +854,4 @@ if (new URLSearchParams(location.search).has("hud")) {  // the tray's global hot
 go(VIEWS[location.hash.slice(1)] ? location.hash.slice(1) : "chat");
 refreshStatus(); setInterval(refreshStatus, 10000);
 setInterval(pollPending, 700);
-pollNotifications(); setInterval(pollNotifications, 30000);
+pollNotifications(); setInterval(pollNotifications, 5000);  // local and cheap; timers should ring on time

@@ -28,6 +28,8 @@ from ..memory import calendar as cal
 from ..memory import mail as mailmod
 from ..proactive import briefing as briefing_mod
 from ..tools.online import Online
+from ..tools.everyday import System, Timers, everyday_tools
+from . import quick as quick_cmds
 from ..memory.prospective import Reminders
 from ..memory.store import MemoryStore
 from ..neurosymbolic.csp import plan_tool
@@ -188,6 +190,11 @@ class Aether:
         self.tools.register(Tool("briefing", "the user's morning briefing: weather, calendar, what's due, important "
                                  "email, headlines", {}, "kg", lambda: self.briefing().written))
         self._last_brief_day = ""
+        self.timers = Timers(self.db, self.lock)
+        self.system = System()
+        for t in everyday_tools(self, self.system):
+            self.tools.register(t)
+        self.last_reply = ""
         self.clock = datetime.now  # swappable in tests
         self.reminders = Reminders(self.db, self.lock)
         self.tools.register(Tool("remind", "set a reminder for the user",
@@ -368,6 +375,7 @@ class Aether:
             if raw_llm is not None and isinstance(self.llm, TracingLLM):
                 self.llm = raw_llm
         reply.state.latency_ms = round((time.perf_counter() - start) * 1000, 1)
+        self.last_reply = reply.text
         reply.turn_id = self.meta.record_turn(reply.state, reply.state.latency_ms, reply.state.intent,
                                               reply.text, reply.notices)
         self.conversations.touch(self.session, text)
@@ -412,6 +420,25 @@ class Aether:
             return Reply(routine_summary(routine, results), state)
 
         now = self.clock()
+        q = quick_cmds.match(text, now, set(self.cfg.security.apps))
+        if q is not None:
+            emit_ = getattr(self, "_emit", lambda kind, data: None)
+            state.intent, state.route, state.confidence = "quick", ["tools"] if q.kind != "answer" else [], 1.0
+            state.current_goal = q.tool or q.kind
+            if q.kind == "answer":
+                return Reply(q.text, state)
+            if q.kind == "copy_last":
+                if not self.last_reply:
+                    return Reply("There's nothing to copy yet.", state)
+                q.tool, q.args = "copy_to_clipboard", {"text": self.last_reply}
+            emit_("stage", {"name": "act", "label": q.tool.replace("_", " ")})
+            r = self.tools.call(q.tool, q.args)
+            emit_("tool", {"tool": q.tool, "ok": r.ok, "decision": r.decision, "preview": r.output[:240]})
+            emit_("stage", {"name": "act", "done": True})
+            state.tool_log.append(f"{q.tool}({q.args}) -> {r.decision}, ok={r.ok}")
+            if r.decision == "declined":
+                return Reply("Okay, I won't.", state)
+            return Reply(r.output if r.ok or r.decision == "deny" else f"That didn't work: {r.output}", state)
         if self._wants_briefing(text, now):
             emit_ = getattr(self, "_emit", lambda kind, data: None)
             state.intent, state.current_goal, state.route = "briefing", "morning briefing", ["tools"]

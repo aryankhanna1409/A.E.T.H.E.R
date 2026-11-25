@@ -48,7 +48,7 @@ aether/
 desktop/           Tauri 2 shell
 installer/         Inno Setup script
 scripts/           Windows setup, model download, GPU tuning, benchmark, installer build
-tests/             179 tests, no model weights needed
+tests/             227 tests, no model weights needed
 ```
 
 ## Dependencies
@@ -93,10 +93,11 @@ tests/             179 tests, no model weights needed
 | 15 | Jarvis presence, part 2 | Done | Local calendar (.ics with RRULE/EXDATE/RECURRENCE-ID/time zones, optional Outlook COM, AETHER's own aether.ics for added events, free-slot finder), schedule in the prompt as untrusted data, Today schedule strip, event-soon / evening review / low-battery nudges, tray launcher with a global voice hotkey and start-with-Windows |
 | 16 | Local mail | Done | Read-only .eml / .mbox / Thunderbird / Outlook COM inbox, search, VIP notifications, inbox in the brief, unsent X-Unsent reply drafts (AETHER cannot send), mail and calendar output treated as untrusted (taint) |
 | 17 | Online + morning briefing | Done | Keyless live weather (Open-Meteo) and news (RSS / Google News topics) behind the network switch, deterministic written and spoken briefing (weather, calendar, due, VIP mail, goals, headlines) triggered by "good morning" / the first morning greeting / HUD / tray / morning notification; abbreviation-aware sentence chunking for speech |
+| 18 | Everyday skills | Done | Model-free quick commands (strict whole-utterance matching) for timers and alarms (persisted, 1 s ringing loop, bypass quiet hours, spoken by the voice loop, chime in the app), media keys, volume, brightness, power (always confirms), YouTube play, websites, browser search, safe AST calculator, unit conversion, notes, clipboard (untrusted), system status; `doctor.py` setup checker and `start.bat`; beginner guide |
 
 ## Known limits
 
-* Everything was built and unit-tested here with a scripted model double (179 tests). It has **not yet run against real GGUF weights, a microphone, a GPU or Windows APIs**; `aether-eval` and `scripts/bench.py` are the first real check on your PC.
+* Everything was built and unit-tested here with a scripted model double (227 tests). It has **not yet run against real GGUF weights, a microphone, a GPU or Windows APIs**; `aether-eval` and `scripts/bench.py` are the first real check on your PC.
 * Small local models follow instructions less reliably than large cloud models. The symbolic layer and code-side filters catch a lot of that, but answer quality still depends on the GGUF you choose.
 * The Tauri shell and the Inno Setup installer have not been compiled here.
 * The injection scanner is a tripwire; the policy engine and taint mode are the real guarantee.

@@ -115,7 +115,8 @@ class SecurityConfig(BaseModel):
     encrypt_at_rest: bool = True  # memories + conversation logs; key wrapped with Windows DPAPI
     allowed_read_roots: list[str] = Field(default_factory=lambda: [str(Path.home() / "Documents" / "AETHER")])
     allowed_write_roots: list[str] = Field(default_factory=list)  # empty = read-only to start
-    auto_approve: list[str] = Field(default_factory=lambda: ["fs.read", "fs.list", "fs.search", "web.search", "web.fetch"])
+    auto_approve: list[str] = Field(default_factory=lambda: ["fs.read", "fs.list", "fs.search", "web.search", "web.fetch",
+                                                              "web.open"])
     network: bool = True  # web research on/off
     # Apps AETHER may open: name -> command or full path to the .exe
     apps: dict[str, str] = Field(default_factory=lambda: {
