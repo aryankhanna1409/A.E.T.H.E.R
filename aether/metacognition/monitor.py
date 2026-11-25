@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS self_reviews (
 CREATE TABLE IF NOT EXISTS tool_outcomes (t REAL NOT NULL, tool TEXT NOT NULL, ok INTEGER NOT NULL);
 """
 
-NEGATIVE = re.compile(r"^\s*(no[,.! ]|nope|wrong|that'?s (wrong|not (it|right|what i (asked|meant)))|"
+NEGATIVE = re.compile(r"^\s*(no(?![,.! ]+(?:problem|worries|thanks|need|rush|hurry|stress)\b)[,.! ]|nope|wrong|that'?s (wrong|not (it|right|what i (asked|meant)))|"
                       r"incorrect|useless|you misunderstood|not helpful|that'?s bad|try again)", re.I)
 POSITIVE = re.compile(r"^\s*(perfect|great|thanks?|thank you|nice|exactly|that'?s (right|it|helpful)|"
                       r"awesome|love it|good job)\b", re.I)

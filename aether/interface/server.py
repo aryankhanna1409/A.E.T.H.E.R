@@ -689,6 +689,30 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.post("/api/feedback")
     def feedback(body: FeedbackIn):
         aether.meta.feedback(body.turn_id, body.value)
+        if body.turn_id:
+            aether.learner.rate(body.turn_id, body.value)
+        return {"ok": True}
+
+    @app.get("/api/learning")
+    def learning():
+        """The weekly summary, recent lessons and the last overnight pass."""
+        from datetime import datetime as _dt
+        r = aether.learner.report()
+        last = aether.learner.last_run()
+        return {"report": r, "last_run": last, "enabled": aether.cfg.learning.enabled,
+                "lessons": [{"id": le.id, "kind": le.kind, "question": le.question[:200], "correction": le.correction[:300],
+                             "lesson": le.lesson, "uses": le.uses, "created": le.created}
+                            for le in aether.learner.lessons(30, ("correction", "disliked"))],
+                "would_run": aether.learner.should_run(_dt.now(), aether.proactive.idle_probe(), None)[1]}
+
+    @app.post("/api/learning/run")
+    def learning_run():
+        threading.Thread(target=aether.learner.run, args=("you asked",), daemon=True).start()
+        return {"started": True}
+
+    @app.delete("/api/learning/lessons/{lid}")
+    def learning_forget(lid: int):
+        aether.learner.forget(lid)
         return {"ok": True}
 
     @app.get("/api/proposals")
