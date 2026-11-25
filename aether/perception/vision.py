@@ -32,7 +32,11 @@ class Vision:
     def describe(self, image_path: str, question: str = "Describe this image in detail.") -> str:
         if not self.configured:
             raise LLMUnavailable("Vision model not set: add [vision].model_path and mmproj_path to aether.toml.")
-        from llama_cpp import Llama
+        from ..llm.cuda_dlls import import_llama
+        try:
+            Llama = import_llama().Llama
+        except ImportError as e:
+            raise LLMUnavailable(str(e)) from e
         import llama_cpp.llama_chat_format as fmt
         with self._lock:
             handler = getattr(fmt, HANDLERS[self.cfg.handler])(clip_model_path=self.cfg.mmproj_path, verbose=False)

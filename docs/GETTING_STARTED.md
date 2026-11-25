@@ -134,6 +134,7 @@ powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -Cuda
 | Problem | Fix |
 | --- | --- |
 | `py` is not recognized | Reinstall Python 3.11 with "py launcher" and "Add to PATH" ticked, then reopen PowerShell |
+| `Could not find module ...llama.dll (or one of its dependencies)` | The CUDA runtime DLLs are missing. Run `.\.venv\Scripts\python -m pip install "nvidia-cuda-runtime-cu12==12.4.*" "nvidia-cublas-cu12==12.4.*"` (setup does this now). If it still fails, install the [Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) and reopen PowerShell. You don't need the CUDA Toolkit |
 | `nmake` / `CMAKE_C_COMPILER not set` / "Failed building wheel for llama-cpp-python" | An older setup script tried to compile the model runner. Run `git pull`, then run step 3 again. It now only uses prebuilt files |
 | `No module named 'huggingface_hub'` | The package install stopped early. Run `git pull`, then run step 3 again |
 | "running scripts is disabled" | Use the exact command in step 3 (it includes `-ExecutionPolicy Bypass`) |

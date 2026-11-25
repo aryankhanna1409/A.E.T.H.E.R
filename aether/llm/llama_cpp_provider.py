@@ -21,10 +21,14 @@ class LlamaCppProvider:
     name = "llama_cpp"
 
     def __init__(self, cfg: LLMConfig):
+        from .cuda_dlls import import_llama
         try:
-            from llama_cpp import Llama
-        except ImportError as e:  # pragma: no cover - depends on install
-            raise LLMUnavailable("llama-cpp-python is not installed. Run: pip install llama-cpp-python") from e
+            Llama = import_llama().Llama
+        except ModuleNotFoundError as e:  # pragma: no cover - depends on install
+            raise LLMUnavailable("llama-cpp-python is not installed. Run scripts\\setup_windows.ps1 -Cuda "
+                                 "(or: pip install llama-cpp-python)") from e
+        except ImportError as e:  # pragma: no cover - installed, but its DLL can't load
+            raise LLMUnavailable(str(e)) from e
         path = Path(cfg.model_path).expanduser()
         if not cfg.model_path or not path.exists():
             raise LLMUnavailable(
