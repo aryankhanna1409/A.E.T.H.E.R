@@ -63,6 +63,8 @@ from .ir import CognitiveState, IntentIR, ToolCall
 from ..health.grind import Grind
 from ..health.grind import handle as grind_handle
 from ..memory.plans import Plans
+from ..proactive.digest import Digest
+from ..proactive.digest import handle as digest_handle
 from ..memory.plans import handle as plans_handle
 from .perception import perceive
 from ..tools.todos import todo_tools
@@ -187,6 +189,7 @@ class Aether:
                                                                "body": "the full text of the email"},
                                  "mail.draft", self._draft_tool))
         self.online = Online(cfg.online, allowed=lambda: self.cfg.security.network)
+        self.digest = Digest(self)
         self.tools.register(Tool("weather", "live weather and forecast (Open-Meteo, no account)",
                                  {"place": "city, optional (default: your location)", "when": "today or tomorrow"},
                                  "web.fetch", self._weather_tool))
@@ -496,7 +499,9 @@ class Aether:
             if r.decision == "declined":
                 return Reply("Okay, I won't.", state)
             return Reply(r.output if r.ok or r.decision == "deny" else f"That didn't work: {r.output}", state)
-        grind_reply = grind_handle(self.grind, text) or plans_handle(self.plans, text, getattr(self, "_spoken", False))
+        sp = getattr(self, "_spoken", False)
+        grind_reply = grind_handle(self.grind, text) or plans_handle(self.plans, text, sp) or \
+            digest_handle(self.digest, text, sp)
         if grind_reply is not None:   # 75 Hard / food / body logging in plain words: instant, no model
             state.intent, state.route, state.confidence, state.current_goal = "quick", ["tools"], 1.0, "grind 75 / plans"
             state.tool_log.append("grind75/plans -> allow, ok=True")

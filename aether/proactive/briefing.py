@@ -73,7 +73,9 @@ def compose(a, now: datetime | None = None, online: bool | None = None) -> Brief
     if online and getattr(a, "online", None) is not None:
         with ThreadPoolExecutor(2) as pool:  # both lookups at once, each with its own timeout
             fw = pool.submit(a.online.weather) if a.cfg.online.location else None
-            fn = pool.submit(a.online.headlines, "", a.cfg.online.briefing_headlines + 4) if a.cfg.online.news_feeds else None
+            digest = getattr(a, "digest", None)
+            fn = (pool.submit(digest.for_briefing, a.cfg.online.briefing_headlines + 2) if digest is not None else
+                  pool.submit(a.online.headlines, "", a.cfg.online.briefing_headlines + 4) if a.cfg.online.news_feeds else None)
             for fut, label in ((fw, "weather"), (fn, "news")):
                 if fut is None:
                     continue
@@ -186,10 +188,12 @@ def compose(a, now: datetime | None = None, online: bool | None = None) -> Brief
 
     if headlines:
         safe = [h for h in headlines if _safe(h.title)][:a.cfg.online.briefing_headlines]
-        sections["news"] = [{"title": h.title, "source": h.source, "link": h.link} for h in safe]
+        src = lambda h: ", ".join(h.sources[:2]) if hasattr(h, "sources") else h.source  # noqa: E731 - digest story or plain headline
+        why = lambda h: f" · _for: {h.why}_" if getattr(h, "why", "") else ""  # noqa: E731
+        sections["news"] = [{"title": h.title, "source": src(h), "link": h.link} for h in safe]
         if safe:
-            w_lines.append("**Headlines:**\n" + "\n".join(f"- [{_safe(h.title)}]({h.link}) · {h.source}" if h.link.startswith("http")
-                                                          else f"- {_safe(h.title)} · {h.source}" for h in safe))
+            w_lines.append("**While you were away:**\n" + "\n".join(f"- [{_safe(h.title)}]({h.link}) · {src(h)}{why(h)}" if h.link.startswith("http")
+                                                                   else f"- {_safe(h.title)} · {src(h)}{why(h)}" for h in safe))
             s_lines.append("In the news: " + " ".join(f"{_safe(h.title).rstrip('.')}." for h in safe[:3]))
 
     if len(s_lines) == 1:

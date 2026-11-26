@@ -122,8 +122,19 @@ class ProactiveEngine:
             for title, body, key in self.awareness.deadline_nudges(now):
                 n += self._queue("deadline", title, body, key)
             n += self._rest_triggers(now)
+            n += self._watch_triggers(now)
         except Exception:
             log.exception("awareness triggers failed")
+        return n
+
+    def _watch_triggers(self, now: datetime) -> int:
+        digest = getattr(self.a, "digest", None)
+        if digest is None:
+            return 0
+        n = 0
+        for query, new in digest.check_watches(getattr(self.a.cfg.online, "watch_every_hours", 4)):
+            body = "; ".join(h.title for h in new[:3]) + (f" (+{len(new) - 3} more)" if len(new) > 3 else "")
+            n += self._queue("news", f"New on {query[:60]}", body, f"watch:{query}:{new[0].title[:40]}")
         return n
 
     def _rest_triggers(self, now: datetime) -> int:

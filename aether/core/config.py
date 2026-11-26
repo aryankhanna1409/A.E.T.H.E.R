@@ -103,6 +103,9 @@ class OnlineConfig(BaseModel):
     ])
     news_region: str = "IN"  # for topic searches ("news about robotics")
     briefing_headlines: int = 3
+    # Topics the "while you were away" digest favours, on top of your plan's current focus and your own terms
+    interests: list[str] = Field(default_factory=list)
+    watch_every_hours: float = 4   # how often the watchlist ("keep an eye on ...") is checked
 
 
 class BriefingConfig(BaseModel):
