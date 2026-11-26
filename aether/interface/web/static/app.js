@@ -526,7 +526,7 @@ RENDER.today = async (p) => {
     try { const r = await api("/api/reminders", { method: "POST", body: { text, when: $("#rem-when", p).value.trim() || "today" } }); toast("Reminder set", `${r.text} · ${r.due}`); } catch (e) { toast("Couldn't add", e.message, "error"); }
     go("today");
   };
-  $("#plan", p).onclick = () => { go("chat"); Chat.t.value = "Give me a quick plan for today based on my reminders and goals."; Chat.send(); };
+  $("#plan", p).onclick = () => { go("chat"); Chat.t.value = "plan my day"; Chat.send(); };
 };
 
 // Awareness: deadlines spotted early, and how long the current stretch of focus has been.

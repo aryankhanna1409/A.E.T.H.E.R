@@ -66,6 +66,7 @@ from ..health.grind import handle as grind_handle
 from ..memory.plans import Plans
 from ..neurosymbolic.mining import Suggestions
 from .intent_model import IntentModel
+from ..optimization import dayplan
 from ..proactive.digest import Digest
 from ..proactive.digest import handle as digest_handle
 from ..memory.plans import handle as plans_handle
@@ -507,7 +508,7 @@ class Aether:
             return Reply(r.output if r.ok or r.decision == "deny" else f"That didn't work: {r.output}", state)
         sp = getattr(self, "_spoken", False)
         grind_reply = grind_handle(self.grind, text) or plans_handle(self.plans, text, sp) or \
-            digest_handle(self.digest, text, sp)
+            digest_handle(self.digest, text, sp) or dayplan.handle(self, text, sp)
         if grind_reply is not None:   # 75 Hard / food / body logging in plain words: instant, no model
             state.intent, state.route, state.confidence, state.current_goal = "quick", ["tools"], 1.0, "grind 75 / plans"
             state.tool_log.append("grind75/plans -> allow, ok=True")

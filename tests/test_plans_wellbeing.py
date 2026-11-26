@@ -119,3 +119,30 @@ def test_watchlist(make_aether):
     assert new and new[0][1][0].title == "MLA-C01 exam guide updated"
     assert handle(a.digest, "stop watching the aws exam") == "Stopped watching AWS MLA-C01 exam."
     assert handle(a.digest, "watch a movie tonight") is None
+
+
+def test_plan_my_day_orders_deep_work_into_peak_hours_around_the_calendar(make_aether):
+    from aether.optimization.dayplan import Block, Busy, plan_day
+    now = datetime(2026, 11, 27, 7, 0)
+    blocks = [Block("Reply to mentor email", 15), Block("Solve 3-5 NeetCode problems", 90, deep=True),
+              Block("Claude Code course", 60, deep=True), Block("Submit lab report", 30, due=True),
+              Block("Workout: Quads", 75, gym=True)]
+    busy = [Busy(datetime(2026, 11, 27, 10, 0), datetime(2026, 11, 27, 11, 0), "Lecture")]
+    plan = plan_day(blocks, busy, now, peak=(9, 13), gym_hour=7)
+    names = [n for _, _, n in plan.slots]
+    assert set(names) == {b.name for b in blocks} and not plan.left_out
+    assert names.index("Submit lab report") <= 1                          # due today: early
+    for s, e, n in plan.slots:
+        assert not (s < busy[0].end and busy[0].start < e), n           # nothing overlaps the lecture
+        if n in ("Solve 3-5 NeetCode problems", "Claude Code course"):
+            assert 8 <= s.hour < 14, (n, s)                               # deep work in the sharpest hours
+    assert plan.slots[-1][1].hour < 22
+
+
+def test_plan_my_day_by_voice(make_aether):
+    a = make_aether()
+    a.clock = lambda: datetime(2026, 11, 27, 8, 0)
+    a.plans.save(PLAN)
+    a.reminders.add("submit essay", "2026-11-27") if hasattr(a.reminders, "add") else None
+    out = a.handle("plan my day").text
+    assert "NeetCode" in out and "–" in out

@@ -97,6 +97,7 @@ class FocusTracker:
     apps: Counter = field(default_factory=Counter)
     day_minutes: dict = field(default_factory=dict)   # date -> minutes at the keyboard (for rest-day advice)
     late_days: set = field(default_factory=set)       # evenings that ran past 1 AM
+    hour_minutes: dict = field(default_factory=dict)  # hour of day -> minutes at the keyboard (finds your peak hours)
     last_sample: float | None = None
 
     def sample(self, now: float) -> bool:
@@ -109,6 +110,7 @@ class FocusTracker:
             when = datetime.fromtimestamp(now)
             key = when.date().isoformat()
             self.day_minutes[key] = self.day_minutes.get(key, 0.0) + step
+            self.hour_minutes[when.hour] = self.hour_minutes.get(when.hour, 0.0) + step
             if 1 <= when.hour < 5:
                 self.late_days.add((when.date() - timedelta(days=1)).isoformat())
         self.last_sample = now

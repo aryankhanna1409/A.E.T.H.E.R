@@ -83,6 +83,13 @@ class ProactiveConfig(BaseModel):
     rest_days: bool = True      # suggest a rest day when training, sleep or late nights say so
 
 
+class DayPlanConfig(BaseModel):
+    # "plan my day": the order for today, by simulated annealing (aether/optimization/dayplan.py)
+    peak_hours: list[int] = Field(default_factory=lambda: [9, 13])  # your sharpest hours, until AETHER learns them
+    gym_hour: int = 6            # usual training time
+    wind_down_hour: int = 22     # nothing is planned after this
+
+
 class LearningConfig(BaseModel):
     # Overnight learning from your corrections (aether/metacognition/learning.py)
     enabled: bool = True
@@ -217,6 +224,7 @@ class Config(BaseModel):
     vision: VisionConfig = Field(default_factory=VisionConfig)
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
+    dayplan: DayPlanConfig = Field(default_factory=DayPlanConfig)
     calendar: CalendarConfig = Field(default_factory=CalendarConfig)
     mail: MailConfig = Field(default_factory=MailConfig)
     online: OnlineConfig = Field(default_factory=OnlineConfig)
