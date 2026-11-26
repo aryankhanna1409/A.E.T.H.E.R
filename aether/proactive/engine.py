@@ -121,8 +121,28 @@ class ProactiveEngine:
                 n += self._queue("break", *nudge)
             for title, body, key in self.awareness.deadline_nudges(now):
                 n += self._queue("deadline", title, body, key)
+            n += self._rest_triggers(now)
         except Exception:
             log.exception("awareness triggers failed")
+        return n
+
+    def _rest_triggers(self, now: datetime) -> int:
+        """Rest days for someone who tends to overwork: a morning suggestion when training, sleep or late nights say
+        so, and an evening "call it a day" after a very long day at the screen."""
+        n, day = 0, now.date().isoformat()
+        focus = self.awareness.focus
+        grind = getattr(self.a, "grind", None)
+        if grind is not None and getattr(self.cfg, "rest_days", True) and 7 <= now.hour < 12:
+            advice = grind.rest_advice(day, late_nights=focus.late_nights(now.date()))
+            if advice:
+                n += self._queue("rest", "Rest day?", advice, f"rest:{day}")
+        hours = focus.hours_on(day)
+        limit = getattr(self.cfg, "overwork_hours", 10)
+        if limit and hours >= limit and now.hour >= 17:
+            n += self._queue("rest", "Call it a day?",
+                             f"You've been at the keyboard about {hours:.0f} hours today. Stop at a clean point, write "
+                             "down the next step so tomorrow starts fast, and get some sleep. Overworking tonight costs "
+                             "tomorrow's focus.", f"overwork:{day}")
         return n
 
     def _calendar_triggers(self, now: datetime, day: str) -> int:

@@ -126,6 +126,38 @@ def compose(a, now: datetime | None = None, online: bool | None = None) -> Brief
         s_lines.append(f"{len(due)} thing{'s' if len(due) != 1 else ''} due" + (f", {overdue} overdue" if overdue else "")
                        + f": {_list([r.text for r in due[:3]])}.")
 
+    plans = getattr(a, "plans", None)
+    try:
+        t = plans.today(now.date()) if plans else {}
+    except Exception:
+        t = {}
+    if t:
+        sections["plan"] = t
+        left = f", {t['days_left']} days to go" if t["days_left"] is not None else ""
+        w_lines.append(f"**Plan · {t['horizon']}{left}:**" + (f" {t['goal']}." if t["goal"] else "")
+                       + ("\n- Every day: " + "; ".join(t["daily"]) if t["daily"] else "")
+                       + ("\n- " + (t["block"] or "Next up") + ": " + "; ".join(t["focus"][:5]) if t["focus"] else ""))
+        s_lines.append(f"{t['horizon']}{left}." + (f" Today: {_list(t['daily'][:3])}." if t["daily"] else "")
+                       + (f" This week: {_list(t['focus'][:2])}." if t["focus"] else ""))
+
+    grind = getattr(a, "grind", None)
+    if grind is not None and grind.state.get("days"):
+        try:
+            c = grind.challenge(now.date().isoformat())
+            yest = (now.date() - timedelta(days=1)).isoformat()
+            ys = grind.day_score(yest)
+            streak = grind.streak(now.date().isoformat())
+            rest = grind.rest_advice(now.date().isoformat())
+            line = (f"Day {c['dayInBlock']} of 75" if c["started"] else f"Starts in {c['daysUntil']} days") + \
+                (f", {streak}-day streak" if streak else "") + f". Yesterday {ys['done']}/{ys['total']} habits."
+            T = grind.state["targets"]
+            line += f" Targets: {T['kcal']} kcal, {T['protein']} g protein."
+            sections["grind"] = {"line": line, "rest": rest}
+            w_lines.append("**75 Hard:** " + line + (f"\n- {rest}" if rest else ""))
+            s_lines.append(line + (" " + rest.split(":")[0] + " today, I'd say." if rest else ""))
+        except Exception as e:
+            log.warning("briefing grind section failed: %s", e)
+
     try:
         mail = a.mail.all(now - timedelta(hours=18))
     except Exception:

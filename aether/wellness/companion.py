@@ -16,6 +16,7 @@ CRISIS_PATTERNS = [
     r"\bdon'?t want to (be here|exist|live)\b", r"\bhurt myself\b",
 ]
 STRESS_PATTERNS = [
+    r"\bimpost[eo]r\b", r"\bnot (?:good|smart) enough\b", r"\bdon'?t belong\b", r"\bout of my depth\b",
     r"\bstress(ed|ful)?\b", r"\banxi(ous|ety)\b", r"\boverwhelm", r"\bburn(ed|t)? ?out\b",
     r"\bpanic", r"\bcan'?t (sleep|cope|focus)\b", r"\bexhausted\b", r"\bsad\b", r"\bdepress",
     r"\blonely\b", r"\bfrustrat", r"\bworried\b", r"\bhopeless\b", r"\bcrying\b",
@@ -82,8 +83,17 @@ MODES = {
     "motivation": "Encourage them genuinely and specifically, without toxic positivity.",
     "relaxation": "Guide a short calming exercise step by step (breathing or 5-4-3-2-1 grounding).",
     "planning": "Help turn the overwhelm into a small plan: three items max, smallest first step first.",
+    "self_doubt": ("They doubt they belong or are good enough (for example a robotics student starting a software "
+                   "job). Take the worry seriously and never dismiss it. Point to concrete evidence from their own "
+                   "record listed below (what they have already built, passed or shipped) and to the progress they "
+                   "are making on their plan. Reframe their different background as an edge where it honestly is "
+                   "one. End with one small, concrete next step for today. No therapy talk, no toxic positivity."),
 }
 MODE_CUES = {
+    "self_doubt": r"\b(imposter|impostor|not (?:good|smart) enough|don'?t belong|not a (?:real )?(?:cs|computer science|software)|"
+                  r"robotics (?:student|guy|background).{0,40}(?:cs|software|computer science|job|role)|"
+                  r"(?:everyone|they) (?:else )?(?:is|are) better|out of my depth|will i (?:survive|make it|cope)|"
+                  r"what if i fail|not ready for (?:the|this|my) (?:job|internship|role))\b",
     "listening": r"\b(just (need|want) to (vent|talk)|just listen|let me vent|need to rant)\b",
     "problem_solving": r"\b(how do i|help me (fix|solve|figure)|what should i do|any advice)\b",
     "relaxation": r"\b(calm down|breath|relax|panic|can'?t breathe)\b",

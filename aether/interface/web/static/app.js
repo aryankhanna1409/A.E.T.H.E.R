@@ -464,6 +464,24 @@ RENDER.grind = async (p) => {
   p.appendChild(h(`<iframe class="grind-frame" src="/grind/" title="Grind 75"></iframe>`));
 };
 
+const Plans = {
+  async render(box) {
+    const d = await api("/api/plans");
+    const t = d.today || {};
+    const list = xs => xs.map(x => `<div class="item"><div class="grow">${esc(x)}</div></div>`).join("");
+    box.innerHTML = `<h3><span class="grow">Plan${t.horizon ? " · " + esc(t.horizon) : ""}${t.days_left != null ? ` <span class="chip accent">${t.days_left} days to go</span>` : ""}</span><button class="ghost" id="plan-edit">Edit</button></h3>
+      ${t.horizon ? `${t.goal ? `<p class="muted">${esc(t.goal)} · ${t.done}/${t.total} done</p>` : ""}
+        <div class="grid two"><div><div class="meta">Every day</div>${list(t.daily || []) || '<div class="empty">No daily list.</div>'}</div>
+        <div><div class="meta">${esc(t.block || "Next up")}</div>${list(t.focus || []) || '<div class="empty">All done here.</div>'}</div></div>
+        ${(t.later || []).length ? `<div class="meta" style="margin-top:8px">Later: ${esc(t.later.join(" · "))}</div>` : ""}`
+      : `<div class="empty">No plan yet. Write one with a "## Now · until YYYY-MM-DD" section, a "### Daily" list and weekly blocks, and AETHER will lead with what matters this week.</div>`}
+      <div id="plan-editor" hidden><textarea class="field" id="plan-md" rows="16" style="width:100%;font-family:var(--mono)"></textarea>
+      <div class="row" style="margin-top:8px"><button class="primary" id="plan-save">Save plan</button><span class="muted">Say "what's my plan" or "done with …" to use it by voice.</span></div></div>`;
+    $("#plan-edit", box).onclick = () => { const ed = $("#plan-editor", box); ed.hidden = !ed.hidden; $("#plan-md", box).value = d.text || "# Plans\n## Now · until " + new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10) + "\nGoal: \n### Daily\n- [ ] \n## Later\n- [ ] \n"; };
+    $("#plan-save", box).onclick = async () => { await api("/api/plans", { method: "POST", body: { text: $("#plan-md", box).value } }); toast("Plan saved"); Plans.render(box); };
+  },
+};
+
 RENDER.today = async (p) => {
   const [b, props, m] = await Promise.all([api("/api/brief"), api("/api/proposals"), api("/api/metrics")]);
   const waiting = props.filter(x => x.status === "proposed");
@@ -478,6 +496,7 @@ RENDER.today = async (p) => {
       <div class="card stat"><b>${waiting.length}</b><span>improvements waiting for you</span></div>
     </div>
     <div class="card" id="sched" style="margin-bottom:16px"></div>
+    <div class="card" id="plans" style="margin-bottom:16px"></div>
     <div class="grid two">
       <div class="card"><h3><span class="grow">Briefing</span><button class="ghost" id="hear">☀ Hear it</button></h3><div class="md" id="brief-text">${markdown(b.text)}</div></div>
       <div class="card"><h3><span class="grow">Reminders</span></h3><div id="rem"></div>
@@ -491,6 +510,7 @@ RENDER.today = async (p) => {
       <div class="card span2" id="routines"></div>
     </div>`;
   Routines.render($("#routines", p));
+  Plans.render($("#plans", p));
   Awareness.render($("#deadlines", p), $("#focus", p));
   Schedule.render($("#sched", p));
   Inbox.render($("#inbox", p));

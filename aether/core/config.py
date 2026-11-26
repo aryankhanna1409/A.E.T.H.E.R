@@ -79,6 +79,8 @@ class ProactiveConfig(BaseModel):
     focus_break_minutes: int = 90  # suggest a break after this long at the keyboard without one (0 = off)
     deadline_nudges: bool = True  # deadlines from the calendar, reminders and indexed documents, nudged early
     deadline_lead_days: list[int] = Field(default_factory=lambda: [7, 3, 1])
+    overwork_hours: float = 10  # "call it a day?" after this many hours at the keyboard in one day (0 = off)
+    rest_days: bool = True      # suggest a rest day when training, sleep or late nights say so
 
 
 class LearningConfig(BaseModel):

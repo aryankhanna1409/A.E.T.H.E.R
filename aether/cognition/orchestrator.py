@@ -62,6 +62,8 @@ from .trace import TraceRecorder, TraceStore, TracingLLM
 from .ir import CognitiveState, IntentIR, ToolCall
 from ..health.grind import Grind
 from ..health.grind import handle as grind_handle
+from ..memory.plans import Plans
+from ..memory.plans import handle as plans_handle
 from .perception import perceive
 from ..tools.todos import todo_tools
 from ..tools.apps import Apps, app_tools
@@ -206,6 +208,7 @@ class Aether:
         self.clock = datetime.now  # swappable in tests
         self.reminders = Reminders(self.db, self.lock)
         self.grind = Grind(cfg.home, cfg.user_name)
+        self.plans = Plans(cfg.home / "plans.md")
         for t in todo_tools(self):
             self.tools.register(t)
         self.router = QueryRouter(cfg.memory, self.store, self.kg, reranker)
@@ -416,6 +419,33 @@ class Aether:
                 reply.notices.append(f"{len(new)} self-improvement proposal(s) are waiting for your approval (/proposals).")
         return reply
 
+    ACHIEVED = re.compile(r"\b(passed|published|built|shipped|won|reached|selected|hired|offer|certif|finals?|"
+                          r"completed|led|mentor|research|co-?authored|live on)\b", re.I)
+
+    def _evidence_block(self) -> str:
+        """The user's own record, for answering self-doubt with facts instead of platitudes."""
+        lines = []
+        try:
+            for m in self.store.list("semantic", 400):
+                if self.ACHIEVED.search(m.text):
+                    lines.append("- " + m.text[:200])
+                if len(lines) >= 8:
+                    break
+        except Exception:
+            pass
+        try:
+            lines += ["- Plan progress: " + p for p in self.plans.progress_lines()]
+        except Exception:
+            pass
+        try:
+            s = self.grind.streak()
+            if s:
+                lines.append(f"- {s}-day streak on their 75 Hard challenge")
+        except Exception:
+            pass
+        return "<their_record>\n" + ("\n".join(lines) or "- (nothing recorded yet: ask what they have done so far)") \
+            + "\n</their_record>"
+
     def _handle(self, text: str) -> Reply:
         state = CognitiveState()
         notices: list[str] = []
@@ -466,10 +496,10 @@ class Aether:
             if r.decision == "declined":
                 return Reply("Okay, I won't.", state)
             return Reply(r.output if r.ok or r.decision == "deny" else f"That didn't work: {r.output}", state)
-        grind_reply = grind_handle(self.grind, text)
+        grind_reply = grind_handle(self.grind, text) or plans_handle(self.plans, text, getattr(self, "_spoken", False))
         if grind_reply is not None:   # 75 Hard / food / body logging in plain words: instant, no model
-            state.intent, state.route, state.confidence, state.current_goal = "quick", ["tools"], 1.0, "grind 75"
-            state.tool_log.append("grind75 -> allow, ok=True")
+            state.intent, state.route, state.confidence, state.current_goal = "quick", ["tools"], 1.0, "grind 75 / plans"
+            state.tool_log.append("grind75/plans -> allow, ok=True")
             return Reply(grind_reply, state)
         if self._wants_briefing(text, now):
             emit_ = getattr(self, "_emit", lambda kind, data: None)
@@ -742,6 +772,8 @@ class Aether:
             self.wm.wellness_mode = mode
         if addendum:
             parts.append(addendum)
+        if mode == "self_doubt":
+            parts.append(self._evidence_block())
         if state.contradictions:
             parts.append("Contradictions detected; point them out politely and ask which is right:\n- "
                          + "\n- ".join(state.contradictions))

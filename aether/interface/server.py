@@ -318,6 +318,18 @@ def create_app(config_path: str | None = None) -> FastAPI:
             links.append({"source": s_, "target": o_, "label": p_, "kind": kind, "id": tid})
         return {"nodes": list(nodes.values()), "links": links}
 
+    @app.get("/api/plans")
+    def get_plans():
+        return {"text": aether.plans.text(), "today": aether.plans.today()}
+
+    @app.post("/api/plans")
+    def save_plans(body: dict):
+        text = str(body.get("text", ""))
+        if len(text) > 200_000:
+            raise HTTPException(413, "plan too long")
+        aether.plans.save(text)
+        return {"today": aether.plans.today()}
+
     @app.get("/api/routines")
     def routines():
         return {"items": aether.routines.list(), "tools": aether.tools.names()}

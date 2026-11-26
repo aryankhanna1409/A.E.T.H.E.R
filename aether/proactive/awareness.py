@@ -95,12 +95,23 @@ class FocusTracker:
     start: float | None = None
     last_active: float | None = None
     apps: Counter = field(default_factory=Counter)
+    day_minutes: dict = field(default_factory=dict)   # date -> minutes at the keyboard (for rest-day advice)
+    late_days: set = field(default_factory=set)       # evenings that ran past 1 AM
+    last_sample: float | None = None
 
     def sample(self, now: float) -> bool:
         """Record one reading. Returns False when this PC can't tell (then focus breaks stay quiet)."""
         idle = self.idle_probe()
         if idle is None:
             return False
+        if idle < BREAK_GAP_S:
+            step = min(max(now - (self.last_sample or now - 60), 0), 120) / 60
+            when = datetime.fromtimestamp(now)
+            key = when.date().isoformat()
+            self.day_minutes[key] = self.day_minutes.get(key, 0.0) + step
+            if 1 <= when.hour < 5:
+                self.late_days.add((when.date() - timedelta(days=1)).isoformat())
+        self.last_sample = now
         if idle >= BREAK_GAP_S:
             self.start, self.last_active = None, None   # away long enough: that was a break
             self.apps.clear()
@@ -120,6 +131,12 @@ class FocusTracker:
 
     def main_app(self) -> str:
         return self.apps.most_common(1)[0][0] if self.apps else ""
+
+    def hours_on(self, day: str) -> float:
+        return self.day_minutes.get(day, 0.0) / 60
+
+    def late_nights(self, today: date, days: int = 7) -> int:
+        return sum(1 for d in self.late_days if 0 <= (today - date.fromisoformat(d)).days < days)
 
 
 def duration(minutes: float) -> str:
