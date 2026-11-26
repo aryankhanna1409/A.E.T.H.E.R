@@ -800,6 +800,15 @@ def create_app(config_path: str | None = None) -> FastAPI:
         aether.proactive.dismiss(nid)
         return {"ok": True}
 
+    @app.post("/api/notifications/{nid}/acted")
+    def acted(nid: int):
+        aether.proactive.acted(nid)
+        return {"ok": True}
+
+    @app.get("/api/nudges/learned")
+    def nudges_learned():
+        return aether.proactive.policy.table()
+
 
     @app.post("/api/image")
     def image(file: UploadFile = File(...), question: str = Form("What is in this image?")):

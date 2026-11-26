@@ -38,6 +38,7 @@ from ..neurosymbolic.kg import KnowledgeGraph
 from ..neurosymbolic.policy import PolicyEngine
 from ..neurosymbolic.rules import RuleEngine
 from ..neurosymbolic.whatif import what_if
+from ..neurosymbolic import grounding
 from ..neurosymbolic.verifier import check_answer, validate_ir
 from ..core.crypto import load_cipher
 from ..core.settings import SettingsStore
@@ -636,12 +637,21 @@ class Aether:
                                                  "memory": len(plan.memories)})
         if fake:
             notices.append("Removed citations with no matching source: " + ", ".join(fake))
+        grounded = None
+        if plan.documents and "documents" in plan.routes and signal.level != "crisis":
+            grounded = grounding.check(draft, [d.text for d in plan.documents], self.store.embedder)
+            if grounded.unsupported:
+                draft += grounding.footnote(grounded)
+                state.uncertain_hypotheses += [f"unsupported by documents: {x[:100]}" for x in grounded.unsupported[:3]]
         answer = companion.ensure_resources(draft, signal)
         if signal.level != "crisis":
             answer = self.prefs.apply_filters(answer)
         emit("stage", {"name": "verify", "done": True, "revised": state.revised,
                        "supported": check.supported if check else [], "conflicts": check.contradictions if check else [],
-                       "removed_citations": fake, "prompt_chars": {"system": len(system), "context": len(context),
+                       "removed_citations": fake,
+                       "grounded": None if grounded is None else {"checked": grounded.checked,
+                                                                  "unsupported": grounded.unsupported[:5]},
+                       "prompt_chars": {"system": len(system), "context": len(context),
                                                                    "history": sum(len(m.content) for m in history)}})
         if answer != streamed:
             emit("replace", {"text": answer})  # verifier, citation check or your preferences changed it

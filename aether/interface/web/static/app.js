@@ -37,9 +37,11 @@ async function api(path, opts = {}) {
   return ct.includes("json") ? r.json() : r;
 }
 
-function toast(title, body = "", kind = "", ms = 6000) {
+function toast(title, body = "", kind = "", ms = 6000, nid = null) {
   const t = h(`<div class="toast ${kind}"><b>${esc(title)}</b><button class="icon-btn" aria-label="Dismiss">✕</button>${body ? `<p>${esc(body)}</p>` : ""}</div>`);
-  $("button", t).onclick = () => t.remove();
+  // nudges teach AETHER what is worth showing: ✕ counts as "not useful", clicking the nudge as "useful"
+  $("button", t).onclick = (e) => { e.stopPropagation(); t.remove(); if (nid) api(`/api/notifications/${nid}/dismiss`, { method: "POST" }).catch(() => {}); };
+  if (nid) { t.style.cursor = "pointer"; t.onclick = () => { t.remove(); api(`/api/notifications/${nid}/acted`, { method: "POST" }).catch(() => {}); }; }
   $("#toasts").appendChild(t);
   if (ms) setTimeout(() => t.remove(), ms);
 }
@@ -124,7 +126,7 @@ async function pollNotifications() {
     const r = await api("/api/notifications");
     for (const n of r.items) {
       if (n.kind === "timer") chime();
-      toast(n.title, n.body, "proactive", n.kind === "timer" ? 60000 : 15000);
+      toast(n.title, n.body, "proactive", n.kind === "timer" ? 60000 : 15000, n.id);
       if (document.hidden) notify("AETHER · " + n.title, n.body);
     }
   } catch {}

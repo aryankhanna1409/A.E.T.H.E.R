@@ -83,3 +83,48 @@ def test_habit_mining_from_your_days():
     hs = mine_habits(turns)
     assert hs[0]["activity"] == "gym" and hs[0]["days"] == 5
     assert not any(h["activity"] == "cafe" for h in hs)
+
+
+def test_document_answers_are_checked_sentence_by_sentence():
+    from aether.neurosymbolic.grounding import check, footnote
+    passages = ["The rover uses a Raspberry Pi 5 as the main server and a YOLOv11 model trained on 4,200 images.",
+                "Batteries: a 20000 mAh power bank runs the robot for about three hours."]
+    answer = ("The rover runs on a Raspberry Pi 5 as its main server. Its YOLOv11 model was trained on 9,000 images. "
+              "The power bank lasts about three hours. It also has a robotic arm made of carbon fibre. "
+              "Do you want the wiring diagram?")
+    g = check(answer, passages)
+    assert g.checked == 4
+    assert any("9,000" in s for s in g.unsupported)            # wrong number: not in any passage
+    assert any("carbon fibre" in s for s in g.unsupported)     # invented detail
+    assert any("Raspberry Pi 5" in s for s in g.supported)
+    assert "double-check" in footnote(g)
+    assert check("Fine.", passages).checked == 0
+
+
+def test_nudges_you_keep_dismissing_are_shown_less(make_aether):
+    import random
+    from datetime import datetime
+    a = make_aether()
+    pe = a.proactive
+    pe.policy.rng = random.Random(1)
+    pe.cfg.max_per_hour = 1000
+    morning = datetime(2026, 11, 26, 9, 0)
+    for i in range(12):
+        pe._queue("break", "Time for a break?", "stand up", f"b{i}")
+        got = [n for n in pe.deliver(morning) if n.kind == "break"]
+        for n in got:
+            pe.dismiss(n.id)
+    a_, b_ = pe.policy.arm("break", "morning")
+    assert b_ > a_                                    # learned that morning breaks get dismissed
+    shown = 0
+    for i in range(40):
+        pe._queue("break", "Time for a break?", "stand up", f"later{i}")
+        shown += sum(n.kind == "break" for n in pe.deliver(morning))
+        a.db.execute("UPDATE notifications SET dismissed=1 WHERE kind='break'")
+    assert shown < 20                                 # mostly held back now, still tried now and then
+    pe._queue("reminder", "Reminder", "call mom", "r1")
+    assert any(n.kind == "reminder" for n in pe.deliver(morning))   # reminders are never held back
+    pe._queue("rest", "Rest day?", "rest", "rest1")
+    n = next(n for n in pe.deliver(morning) if n.kind == "rest")
+    pe.acted(n.id)
+    assert pe.policy.arm("rest", "morning")[0] == 3.0
