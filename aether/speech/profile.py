@@ -22,7 +22,7 @@ from pathlib import Path
 
 ASSISTANT_NAME = "Nova"
 # Indian-English context that is not personal: Whisper spells these right far more often when it expects them.
-BASE_TERMS = ["Nova", "AETHER", "Jarvis", "Pune", "Mumbai", "Bengaluru", "Delhi", "Hyderabad", "Chennai",
+BASE_TERMS = ["Nova", "AETHER", "Pune", "Mumbai", "Bengaluru", "Delhi", "Hyderabad", "Chennai",
               "Swiggy", "Zomato", "Ola", "Uber", "UPI", "rupees", "lakh", "crore", "paneer", "dosa", "chai",
               "YouTube", "WhatsApp", "GitHub", "Python", "VS Code", "Raspberry Pi", "ROS", "YOLO"]
 WORD = re.compile(r"[\w'.-]+")
@@ -159,20 +159,22 @@ def looks_like_correction(heard: str, typed: str) -> bool:
     return difflib.SequenceMatcher(a=a, b=b).ratio() >= 0.6
 
 
-# The names AETHER answers to, as Whisper tends to spell them in Indian English. "either" is left out on purpose:
-# it starts too many ordinary sentences.
+# The names AETHER answers to, as Whisper tends to spell them in Indian English: "AETHER" (said "ee-ther" or
+# "ay-ther") and "Nova" for the little orb. "either" is left out on purpose: it starts too many ordinary sentences.
 NAMES = (r"nova|nowa|nava|nowah|novah|no\s?va"
-         r"|jarvis|jarvish|jarvees|jarviss|jervis|javis|jarwis|charvis"
-         r"|aether|ether|aethar|ethar|ayther|eather|eether|ather")
+         r"|aether|ether|aethar|ethar|ayther|eather|eether|ather|eter")
 WAKE = re.compile(rf"\b(?:hey|hi|hay|he|okay|ok|a|yo)?[\s,]*(?:{NAMES})\b", re.I)
+# Waking from idle is stricter: the name has to open the utterance ("Nova", "hey AETHER, ..."), so a name
+# said in passing or a word Whisper half-hears in background talk doesn't wake it.
+WAKE_START = re.compile(rf"^\W*(?:(?:hey|hi|hay|okay|ok|yo)[\s,]+)?(?:{NAMES})\b", re.I)
 
 
 def is_wake_phrase(text: str, profile: SpeechProfile | None = None) -> bool:
-    """True for a short utterance that calls the assistant by name: "hey Nova", "Jarvis", "AETHER"."""
+    """True for a short utterance that calls the assistant by name: "hey Nova", "AETHER"."""
     if profile is not None:
         text = profile.apply(text)
     t = text.strip().lower()
-    return bool(t) and len(t.split()) <= 6 and bool(WAKE.search(t))
+    return bool(t) and len(t.split()) <= 6 and bool(WAKE_START.search(t))
 
 
 def terms_from_memories(store, limit: int = 40) -> list[str]:

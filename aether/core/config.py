@@ -178,6 +178,11 @@ class VoiceConfig(BaseModel):
     # Say the assistant's name instead: short phrases are checked with a tiny Whisper model ("hey Nova").
     wake_by_name: bool = True
     wake_stt_model: str = "tiny.en"
+    # After a reply, keep listening without the name only when AETHER asked you something ("question"), always
+    # ("always", the old behaviour, which picks up TV and other people), or never ("off").
+    follow_up: str = "question"
+    follow_up_s: float = 6.0
+    follow_up_turns: int = 3     # at most this many replies in a row without saying the name again
     silence_ms: int = 900  # end of utterance after this much silence
     vad_energy: float = 0.012  # RMS level that counts as speech; raise in noisy rooms
     barge_in: bool = True  # interrupt AETHER by speaking while it talks

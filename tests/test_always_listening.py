@@ -1,4 +1,4 @@
-"""Always listening: wake by "Nova", "Jarvis" or "AETHER", the voice process using the server's model,
+"""Always listening: wake by "Nova" or "AETHER", the voice process using the server's model,
 and the tray's microphone toggle."""
 import json
 import threading
@@ -11,9 +11,10 @@ from aether.speech.profile import is_wake_phrase
 
 
 def test_every_name_wakes_it_but_ordinary_speech_does_not():
-    for said in ["Jarvis", "hey Jarvis.", "Jervis", "AETHER", "Aether, what's the time", "Hey Ether", "Nova", "ok nova"]:
+    for said in ["AETHER", "Aether, what's the time", "Hey Ether", "hey eather", "Nova", "ok nova", "Hi Nava!"]:
         assert is_wake_phrase(said), said
-    for said in ["either way is fine", "I read about a supernova", "we watched a movie about Jarvis and Tony yesterday night"]:
+    for said in ["either way is fine", "I read about a supernova", "we watched a movie about Jarvis and Tony yesterday night",
+                 "I told Nova about it", "so the ether thing", "Jarvis"]:
         assert not is_wake_phrase(said), said
 
 
@@ -32,8 +33,8 @@ def fake_va(heard_small, heard_big):
     return va, said, states
 
 
-def test_bare_jarvis_and_aether_wake_and_nova_turns_amber():
-    va, said, states = fake_va("Jarvis", "Jarvis")
+def test_bare_aether_and_nova_wake_and_nova_turns_amber():
+    va, said, states = fake_va("Aether", "AETHER")
     assert va.name_called(np.zeros(8000, dtype="float32")) and said == [] and states == ["listening"]
     va, said, _ = fake_va("Aether set a timer for five minutes", "AETHER, set a timer for five minutes")
     assert va.name_called(np.zeros(8000, dtype="float32")) and said == ["set a timer for five minutes"]
@@ -85,3 +86,25 @@ def test_tray_starts_the_listener_and_can_mute_it(tmp_path, monkeypatch):
     assert Tray.listening_wanted() and not t.listening()
     nova.save_settings({"listening": False})
     assert not Tray.listening_wanted()
+
+
+def test_name_in_passing_or_background_talk_does_not_wake():
+    va, said, states = fake_va("and then I told Nova to stop", "and then I told Nova to stop")
+    assert not va.name_called(np.zeros(8000, dtype="float32")) and states == []
+    va, said, states = fake_va("", "")      # Whisper wasn't sure it heard speech at all
+    assert not va.name_called(np.zeros(8000, dtype="float32"))
+
+
+def test_follow_up_only_after_a_question_and_wake_window_expires():
+    import time as _t
+    va, said, states = fake_va("Nova", "Nova")
+    va._after_reply("It's 6 PM.")
+    assert va.state == "idle" and va.follow_up_until == 0
+    va.state = "speaking"
+    va._after_reply("Do you want me to set a reminder?")
+    assert va.state == "listening" and va.follow_up_until > _t.time()
+    for _ in range(5):
+        va._after_reply("Anything else?")
+    assert va.state == "idle"          # never an endless conversation with the room
+    va.name_called(np.zeros(8000, dtype="float32"))
+    assert va.state == "listening" and 0 < va.follow_up_until - _t.time() <= 8.5   # listening after the name times out

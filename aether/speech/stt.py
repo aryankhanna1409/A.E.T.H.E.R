@@ -41,6 +41,18 @@ class SpeechToText:
             segments, _ = self.model.transcribe(audio, **opts)
         return " ".join(s.text.strip() for s in segments).strip()
 
+    def confident(self, audio, max_no_speech: float = 0.5, min_logprob: float = -0.9) -> str:
+        """Transcript only when Whisper is sure it heard speech, for deciding whether to wake. No prompt and no
+        hotwords here on purpose: a prompt full of the assistant's names makes Whisper "hear" them in fan noise,
+        a TV or someone else's conversation, which is how it ended up answering everything."""
+        segments, _ = self.model.transcribe(audio, language="en", vad_filter=True, beam_size=1,
+                                            condition_on_previous_text=False)
+        segs = list(segments)
+        if not segs or any(s.no_speech_prob > max_no_speech or s.avg_logprob < min_logprob for s in segs[:1]):
+            return ""
+        text = " ".join(s.text.strip() for s in segs).strip()
+        return self.profile.apply(text) if self.profile is not None else text
+
     def transcribe(self, audio, language: str | None = "en") -> str:
         """audio: float32 numpy array at 16 kHz, or a path to an audio file."""
         text = self.raw(audio)
