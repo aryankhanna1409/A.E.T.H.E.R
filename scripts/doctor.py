@@ -123,7 +123,7 @@ def main() -> int:
             line(OK, f"wake word \"{cfg.voice.wake_word}\" loads")
         except Exception as e:
             line(WARN, f"wake word didn't load: {str(e)[:160]}",
-                 'Saying the name ("Jarvis", "Nova", "AETHER") still works. Send this line if it stays.')
+                 'Saying the name ("AETHER" or "Nova") still works. Send this line if it stays.')
     if not cfg.voice.tts_voice_path and not sorted((ROOT / "models" / "voices").rglob("*.onnx")):
         line(WARN, "no Piper voice: AETHER speaks with the plainer built-in Windows voice",
              "Run .\\.venv\\Scripts\\python scripts\\get_model.py voice")

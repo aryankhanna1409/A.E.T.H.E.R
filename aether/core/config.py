@@ -116,7 +116,7 @@ class OnlineConfig(BaseModel):
 
 
 class BriefingConfig(BaseModel):
-    on_first_greeting: bool = True  # the first "hey jarvis" / "good morning" of the morning gives the briefing
+    on_first_greeting: bool = True  # the first "AETHER, good morning" / "good morning" of the morning gives the briefing
     window_start: str = "04:30"  # "morning" for the greeting trigger
     window_end: str = "12:00"
 
@@ -184,9 +184,9 @@ class VoiceConfig(BaseModel):
     stt_beam_size: int = 5        # beam search: slower than greedy but much better on accents
     stt_prompt: str = ""          # extra context for Whisper, e.g. "Robotics student. Terms: ROS 2, Nav2, SLAM."
     tts_voice_path: str = ""  # Piper voice .onnx, e.g. en_GB-alan-medium.onnx (see README)
-    wake_word: str = "hey_jarvis"  # openWakeWord built-in model name, or a path to your own .onnx
+    wake_word: str = "hey_jarvis"  # silent backup detector: openWakeWord built-in model name, or a path to your own .onnx
     wake_threshold: float = 0.5
-    wake_verifier_path: str = ""   # made by scripts/learn_my_voice.py: tunes "hey Jarvis" to your voice
+    wake_verifier_path: str = ""   # made by scripts/learn_my_voice.py: tunes the backup wake model to your voice
     # Say the assistant's name instead: short phrases are checked with a tiny Whisper model ("hey Nova").
     wake_by_name: bool = True
     wake_stt_model: str = "tiny.en"
@@ -212,7 +212,7 @@ class VisionConfig(BaseModel):
 class Config(BaseModel):
     name: str = "AETHER"
     user_name: str = "Aryan"
-    persona: str = "jarvis"  # jarvis | neutral
+    persona: str = "aether"  # aether | neutral
     address_as: str = ""  # e.g. "sir"; empty = use the name naturally
     home: Path = Field(default_factory=default_home)
     llm: LLMConfig = Field(default_factory=LLMConfig)

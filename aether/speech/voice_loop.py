@@ -397,7 +397,7 @@ class VoiceAssistant:
         if proactive is not None and self.ring not in proactive.listeners:
             proactive.listeners.append(self.ring)
         block = int(self.cfg.sample_rate * FRAME_MS / 1000)
-        print('Voice ready. Say "hey Jarvis", or just "Nova", "Jarvis" or "AETHER" (Ctrl+C to quit).')
+        print('Voice ready. Say "AETHER" or "Nova" (Ctrl+C to quit).')
         with sd.InputStream(samplerate=self.cfg.sample_rate, channels=1, dtype="float32", blocksize=block,
                             callback=self._on_audio):
             while self.running:

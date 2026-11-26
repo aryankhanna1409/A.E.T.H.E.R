@@ -86,7 +86,7 @@ Rules:
 - Facts in <known_facts> were verified by the symbolic engine; prefer them over your own assumptions."""
 
 PERSONALITIES = {
-    "jarvis": "calm, precise and quietly capable, like a seasoned chief of staff with an engineer's mind. "
+    "aether": "calm, precise and quietly capable, like a seasoned chief of staff with an engineer's mind. "
               "Understated, dry wit when it fits; never gushing, never sycophantic. Lead with the answer, "
               "anticipate the obvious next need and offer it in one line.",
     "neutral": "calm, intelligent, precise, warm, witty when it fits, never sycophantic.",
@@ -774,7 +774,7 @@ class Aether:
 
     def _compose(self, ir, plan, tool_results, state, signal, text) -> tuple[str, str]:
         today = datetime.now().strftime("%A %d %B %Y, %H:%M")
-        personality = PERSONALITIES.get(self.cfg.persona, PERSONALITIES["neutral"])
+        personality = PERSONALITIES.get("aether" if self.cfg.persona == "jarvis" else self.cfg.persona, PERSONALITIES["neutral"])
         if self.cfg.address_as:
             personality += f" Address the user as '{self.cfg.address_as}' now and then, not in every sentence."
         # The unchanging part comes first and the clock after it, so llama.cpp can reuse the cached start of the
