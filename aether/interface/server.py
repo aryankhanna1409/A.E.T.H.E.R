@@ -318,6 +318,18 @@ def create_app(config_path: str | None = None) -> FastAPI:
             links.append({"source": s_, "target": o_, "label": p_, "kind": kind, "id": tid})
         return {"nodes": list(nodes.values()), "links": links}
 
+    @app.get("/api/suggestions")
+    def get_suggestions():
+        return {"items": aether.suggestions.list(), "router": aether.intent_model.info()}
+
+    @app.post("/api/suggestions/refresh")
+    def refresh_suggestions():
+        return aether.suggestions.refresh()
+
+    @app.post("/api/suggestions/{sid}")
+    def decide_suggestion(sid: int, body: dict):
+        return {"message": aether.suggestions.decide(sid, bool(body.get("accept")))}
+
     @app.get("/api/plans")
     def get_plans():
         return {"text": aether.plans.text(), "today": aether.plans.today()}

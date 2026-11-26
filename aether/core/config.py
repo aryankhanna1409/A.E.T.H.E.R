@@ -225,6 +225,7 @@ class Config(BaseModel):
     # Fast mode: short everyday messages skip the model's interpretation pass, the fact-check pass only runs when
     # the answer talks about people or things AETHER has facts on, and learning from the turn happens after the
     # reply instead of before it. Off = every turn takes the full (slower) path.
+    learned_router: bool = True  # a small classifier, distilled from the model, skips its reading pass when sure
     fast_mode: bool = True
 
     @property

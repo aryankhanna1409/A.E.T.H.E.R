@@ -63,6 +63,8 @@ from .ir import CognitiveState, IntentIR, ToolCall
 from ..health.grind import Grind
 from ..health.grind import handle as grind_handle
 from ..memory.plans import Plans
+from ..neurosymbolic.mining import Suggestions
+from .intent_model import IntentModel
 from ..proactive.digest import Digest
 from ..proactive.digest import handle as digest_handle
 from ..memory.plans import handle as plans_handle
@@ -212,6 +214,9 @@ class Aether:
         self.reminders = Reminders(self.db, self.lock)
         self.grind = Grind(cfg.home, cfg.user_name)
         self.plans = Plans(cfg.home / "plans.md")
+        self.intent_model = IntentModel(self.db, self.lock, embedder, cipher=self.store.cipher)
+        self.suggestions = Suggestions(self)
+        threading.Thread(target=self.intent_model.safe_train, daemon=True).start()
         for t in todo_tools(self):
             self.tools.register(t)
         self.router = QueryRouter(cfg.memory, self.store, self.kg, reranker)
@@ -532,7 +537,8 @@ class Aether:
         emit("stage", {"name": "perceive", "done": True, "wellness": signal.level, "topic": state.active_topic})
         # INTERPRET (neural) + VALIDATE (symbolic)
         emit("stage", {"name": "interpret", "label": "Understanding the request"})
-        ir = perceive(self.llm, text, self.wm.history(topic.id), self.tools.names(), fast=self.cfg.fast_mode)
+        ir = perceive(self.llm, text, self.wm.history(topic.id), self.tools.names(), fast=self.cfg.fast_mode,
+                      learned=self.intent_model if self.cfg.learned_router else None)
         report = validate_ir(ir, set(self.tools.names()))
         state.current_goal = ir.objective
         state.intent = re.sub(r"[^a-z_]", "", ir.intent.lower())[:32] or "other"

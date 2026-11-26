@@ -82,7 +82,7 @@ def heuristic_ir(text: str) -> IntentIR:
 
 
 def perceive(llm: LLMProvider | None, text: str, recent: list[tuple[str, str]], tools: list[str],
-             fast: bool = False) -> IntentIR:
+             fast: bool = False, learned=None) -> IntentIR:
     base = heuristic_ir(text)
     if llm is None:
         return base
@@ -92,6 +92,18 @@ def perceive(llm: LLMProvider | None, text: str, recent: list[tuple[str, str]], 
     if fast and is_simple(text):
         base.confidence = 0.8
         return base
+    if learned is not None and not base.facts_stated:
+        try:
+            guess = learned.predict(text)
+        except Exception as e:  # the learned router must never break a turn
+            log.warning("learned router failed: %s", e)
+            guess = None
+        if guess is not None:   # it reads messages like this one the way the model does: skip the model's pass
+            base.needs, base.confidence = sorted(set(guess[0]) | (set(base.needs) - {"direct"})) or ["direct"], guess[1]
+            if len(base.needs) > 1 and "direct" in base.needs:
+                base.needs.remove("direct")
+            base.intent = "learned_" + base.intent
+            return base
     history = "\n".join(f"{r}: {t[:300]}" for r, t in recent[-4:])
     try:
         ir = structured(llm, [
@@ -110,4 +122,9 @@ def perceive(llm: LLMProvider | None, text: str, recent: list[tuple[str, str]], 
     ir.facts_stated += [f for f in base.facts_stated if (f.predicate, f.object.lower()) not in known]
     if not ir.needs:
         ir.needs = ["direct"]
+    if learned is not None:
+        try:
+            learned.record(text, list(ir.needs))
+        except Exception as e:
+            log.warning("could not keep the routing example: %s", e)
     return ir

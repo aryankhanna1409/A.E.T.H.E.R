@@ -31,6 +31,7 @@ class Rule:
     body: list[Atom]
     head: Atom
     text: str
+    confidence: float = 1.0   # hand-written rules are certain; rules AETHER mined from your facts carry their measured rate
 
 
 @dataclass
@@ -38,6 +39,8 @@ class Derivation:
     triple: tuple[str, str, str]
     rule: str
     support: list[tuple[str, str, str]] = field(default_factory=list)
+    confidence: float = 1.0   # rule confidence x the confidence of every supporting fact; several proofs: noisy-or
+    proofs: int = 1
 
 
 @dataclass
@@ -80,19 +83,25 @@ class RuleEngine:
         self.proofs: dict[tuple[str, str, str], Derivation] = {}
         with kg.lock:
             kg.db.execute("CREATE TABLE IF NOT EXISTS rules (text TEXT PRIMARY KEY)")
+            if "confidence" not in {r[1] for r in kg.db.execute("PRAGMA table_info(rules)")}:
+                kg.db.execute("ALTER TABLE rules ADD COLUMN confidence REAL DEFAULT 1.0")
             kg.db.commit()
-        for (text,) in kg.db.execute("SELECT text FROM rules").fetchall():
+        for text, conf in kg.db.execute("SELECT text, confidence FROM rules").fetchall():
             try:
-                self.rules.append(parse_rule(text))
+                r = parse_rule(text)
+                r.confidence = conf if conf is not None else 1.0
+                self.rules.append(r)
             except ValueError:
                 pass
 
-    def add_rule(self, text: str, persist: bool = True) -> None:
+    def add_rule(self, text: str, persist: bool = True, confidence: float = 1.0) -> None:
         rule = parse_rule(text)  # validates before storing
+        rule.confidence = max(0.0, min(1.0, confidence))
         self.rules.append(rule)
         if persist:
             with self.kg.lock:
-                self.kg.db.execute("INSERT OR IGNORE INTO rules(text) VALUES (?)", (rule.text,))
+                self.kg.db.execute("INSERT OR REPLACE INTO rules(text, confidence) VALUES (?, ?)",
+                                   (rule.text, rule.confidence))
                 self.kg.db.commit()
 
     def remove_rule(self, text: str) -> None:
@@ -150,10 +159,25 @@ class RuleEngine:
                 results += self._match(rest, facts, b, support + [(s, p, o)])
         return results
 
+    def _fact_confidence(self) -> dict[tuple[str, str, str], float]:
+        conf: dict[tuple[str, str, str], float] = {}
+        for t in self.kg.all():
+            for k in [t.key()] + ([(t.o, t.p, t.s)] if t.p in SYMMETRIC else []) + \
+                     ([(t.o, INVERSES[t.p], t.s)] if t.p in INVERSES else []):
+                conf[k] = max(conf.get(k, 0.0), t.confidence)
+        return conf
+
     def run(self, max_rounds: int = 10, persist: bool = True) -> tuple[list[Derivation], list[Violation]]:
-        """Forward-chain to a fixpoint. Returns new derivations and constraint violations."""
+        """Forward-chain to a fixpoint. Returns new derivations and constraint violations.
+
+        Each derived fact gets a confidence: the rule's confidence times the confidence of every fact it used
+        (so a conclusion is never surer than its weakest premise). A fact proved in several independent ways
+        combines them with noisy-or, 1 - (1-a)(1-b), so more evidence makes it surer but never certain."""
         facts = self._facts()
+        conf = self._fact_confidence()
+        stated = set(facts)
         new: list[Derivation] = []
+        seen_proofs: set = set()
         violations: list[Violation] = []
         for _ in range(max_rounds):
             added = False
@@ -167,24 +191,39 @@ class RuleEngine:
                             violations.append(v)
                         continue
                     t = (s, rule.head.p, o)
+                    c = rule.confidence
+                    for sup in support:
+                        c *= conf.get(sup, 1.0)
+                    proof = (t, rule.text, tuple(support))
                     if t not in facts:
                         facts.add(t)
-                        d = Derivation(t, rule.text, support)
+                        conf[t] = c
+                        seen_proofs.add(proof)
+                        d = Derivation(t, rule.text, support, round(c, 4))
                         self.proofs[t] = d
                         new.append(d)
                         added = True
+                    elif t not in stated and proof not in seen_proofs and t in self.proofs:
+                        seen_proofs.add(proof)        # another, independent proof of a derived fact
+                        d = self.proofs[t]
+                        d.confidence = round(1 - (1 - d.confidence) * (1 - c), 4)
+                        d.proofs += 1
+                        conf[t] = d.confidence
             if not added:
                 break
         if persist:
             for d in new:
-                self.kg.assert_fact(*d.triple, source="observed", confidence=0.8, derived=True)
+                self.kg.assert_fact(*d.triple, source="observed", confidence=round(0.9 * d.confidence, 3),
+                                    derived=True)
         return new, violations
 
     def explain(self, triple: tuple[str, str, str], depth: int = 0) -> list[str]:
         d = self.proofs.get(triple)
         if not d:
             return ["  " * depth + f"{' '.join(triple)} (stated fact)"]
-        lines = ["  " * depth + f"{' '.join(triple)} because [{d.rule}]"]
+        lines = ["  " * depth + f"{' '.join(triple)} because [{d.rule}]"
+                 + (f" (confidence {d.confidence:.2f}" + (f", {d.proofs} proofs" if d.proofs > 1 else "") + ")"
+                    if d.confidence < 1 or d.proofs > 1 else "")]
         for sup in d.support:
             lines += self.explain(sup, depth + 1)
         return lines
