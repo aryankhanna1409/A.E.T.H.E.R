@@ -53,7 +53,7 @@ const S = {
 };
 document.documentElement.dataset.theme = S.theme;
 
-const VIEWS = { chat: "Chat", today: "Today", memory: "Memory", knowledge: "Knowledge", goals: "Mission control", lab: "Lab", self: "Self", activity: "Activity", settings: "Settings" };
+const VIEWS = { chat: "Chat", today: "Today", grind: "Grind 75", memory: "Memory", knowledge: "Knowledge", goals: "Mission control", lab: "Lab", self: "Self", activity: "Activity", settings: "Settings" };
 
 function go(view) {
   if (!VIEWS[view]) return;
@@ -458,6 +458,11 @@ async function streamChat(text, on, { voice = false } = {}) {
 
 // ------------------------------------------------------------------ pages
 const RENDER = {};
+
+RENDER.grind = async (p) => {
+  p.classList.add("page-frame");
+  p.appendChild(h(`<iframe class="grind-frame" src="/grind/" title="Grind 75"></iframe>`));
+};
 
 RENDER.today = async (p) => {
   const [b, props, m] = await Promise.all([api("/api/brief"), api("/api/proposals"), api("/api/metrics")]);
@@ -958,7 +963,7 @@ RENDER.settings = async (p) => {
 // ------------------------------------------------------------------ command palette
 const COMMANDS = [
   ["New chat", "Start a fresh conversation", "plus", () => { go("chat"); Chat.newChat(); }],
-  ...Object.entries(VIEWS).map(([k, v]) => [`Go to ${v}`, "", { chat: "chat", today: "sun", memory: "brain", knowledge: "graph", goals: "target", lab: "flask", self: "pulse", activity: "shield", settings: "gear" }[k], () => go(k)]),
+  ...Object.entries(VIEWS).map(([k, v]) => [`Go to ${v}`, "", { chat: "chat", today: "sun", grind: "flame", memory: "brain", knowledge: "graph", goals: "target", lab: "flask", self: "pulse", activity: "shield", settings: "gear" }[k], () => go(k)]),
   ["HUD mode", "Full-screen voice interface (Ctrl+Shift+H)", "orb", () => HUD.open()],
   ["Morning briefing", "Weather, calendar, what's due, email and headlines, read aloud", "sun", () => { HUD.open(); HUD.ask("brief me"); }],
   ["What's on my screen?", "Look at the screen with the local vision model (asks first)", "scan", () => { go("chat"); Chat.t.value = "Look at my screen. What's on it, and is there anything I should know?"; Chat.send(); }],
@@ -1021,7 +1026,7 @@ document.addEventListener("keydown", e => {
   else if (mod && e.key.toLowerCase() === "n") { e.preventDefault(); go("chat"); Chat.newChat(); }
   else if (mod && e.key === ".") { e.preventDefault(); S.showMind = !S.showMind; store.set("showMind", S.showMind); Chat.root && Chat.applyLayout(); }
   else if (mod && e.key === ",") { e.preventDefault(); go("settings"); }
-  else if (mod && /^[1-8]$/.test(e.key)) { e.preventDefault(); go(Object.keys(VIEWS)[+e.key - 1]); }
+  else if (mod && /^[1-9]$/.test(e.key)) { e.preventDefault(); go(Object.keys(VIEWS)[+e.key - 1]); }
   else if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); go("chat"); Chat.t.focus(); }
 });
 window.addEventListener("hashchange", () => { const v = location.hash.slice(1); if (v && v !== S.view) go(v); });

@@ -1,0 +1,40 @@
+// Short lines for the daily motivation card and the "do the work" wallpapers.
+window.QUOTES = [
+  ['We are what we repeatedly do.', 'Will Durant, on Aristotle'],
+  ['First say to yourself what you would be; then do what you have to do.', 'Epictetus'],
+  ['Waste no more time arguing what a good man should be. Be one.', 'Marcus Aurelius'],
+  ['It is not that we have a short time to live, but that we waste a lot of it.', 'Seneca'],
+  ['Well done is better than well said.', 'Benjamin Franklin'],
+  ['The impediment to action advances action. What stands in the way becomes the way.', 'Marcus Aurelius'],
+  ['Discipline is choosing between what you want now and what you want most.', 'Unknown'],
+  ['A year from now you will wish you had started today.', 'Karen Lamb'],
+  ['You do not rise to the level of your goals. You fall to the level of your systems.', 'James Clear'],
+  ['Never miss twice.', 'The rule'],
+  ['Small plates, every day, add up to a different body.', 'AETHER'],
+  ['Eat like it is your job. Lift like it matters. Sleep like it is training.', 'AETHER'],
+  ['The page you read today is the one that changes next year.', 'AETHER'],
+  ['Saying no to most things is how you say yes to the few that matter.', 'AETHER'],
+  ['Nobody is coming. Do the work.', 'AETHER'],
+  ['Motivation is a visitor. Routine lives here.', 'AETHER'],
+  ['The scale moves slowly. The habit moves you.', 'AETHER'],
+  ['Hard days are the ones that count double.', 'AETHER'],
+  ['Show up on the boring days. That is the whole secret.', 'AETHER'],
+  ['You are allowed a minimum-version day. You are not allowed a zero.', 'AETHER'],
+  ['He who has a why to live can bear almost any how.', 'Friedrich Nietzsche'],
+  ['The best time to plant a tree was 20 years ago. The second best time is now.', 'Proverb'],
+  ['Quality is not an act, it is a habit.', 'Will Durant, on Aristotle'],
+  ['Begin at once to live.', 'Seneca'],
+  ['Little by little, one travels far.', 'J. R. R. Tolkien'],
+  ['What you do every day matters more than what you do once in a while.', 'Gretchen Rubin'],
+  ['Comfort is the enemy of progress.', 'Unknown'],
+  ['Be stronger than your excuses.', 'AETHER'],
+  ['Protect your peace. Choose your people.', 'AETHER'],
+  ['Rupees saved today are freedom bought tomorrow.', 'AETHER'],
+];
+
+// Big words for the black minimal wallpapers.
+window.MOTTOS = [
+  'DO THE WORK.', 'STAY HARD.', 'NO ZERO DAYS.', 'EAT. LIFT. READ. SLEEP.', 'NEVER MISS TWICE.',
+  'DISCIPLINE > MOTIVATION', 'QUIET WORK.', 'EARN IT.', 'ONE MORE REP.', 'BUILD.', 'KEEP GOING.',
+  'BE THE PROOF.', 'SHOW UP.', 'LESS TALK. MORE WORK.', 'TRUST THE PROCESS.',
+];

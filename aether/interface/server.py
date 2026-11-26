@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from ..app import build
 from ..core.logging import ensure_streams, setup_logging
 from ..core.version import code_version
+from ..health import grind_api
 from ..neurosymbolic.rules import RuleEngine
 
 WEB = Path(__file__).parent / "web"
@@ -146,6 +147,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-cache"})
 
     app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
+    grind_api.register(app, aether)   # Grind 75 (75 Hard, food, body) at /grind/
 
     # What AETHER is doing right now, for Nova (the desktop pet) and other small displays.
     presence = {"state": "idle", "until": 0.0}

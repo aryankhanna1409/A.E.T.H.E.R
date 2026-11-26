@@ -60,6 +60,8 @@ from ..wellness import companion
 from .context import TopicTracker, WorkingMemory
 from .trace import TraceRecorder, TraceStore, TracingLLM
 from .ir import CognitiveState, IntentIR, ToolCall
+from ..health.grind import Grind
+from ..health.grind import handle as grind_handle
 from .perception import perceive
 from ..tools.todos import todo_tools
 from ..tools.apps import Apps, app_tools
@@ -203,6 +205,7 @@ class Aether:
         self.last_reply = ""
         self.clock = datetime.now  # swappable in tests
         self.reminders = Reminders(self.db, self.lock)
+        self.grind = Grind(cfg.home, cfg.user_name)
         for t in todo_tools(self):
             self.tools.register(t)
         self.router = QueryRouter(cfg.memory, self.store, self.kg, reranker)
@@ -463,6 +466,11 @@ class Aether:
             if r.decision == "declined":
                 return Reply("Okay, I won't.", state)
             return Reply(r.output if r.ok or r.decision == "deny" else f"That didn't work: {r.output}", state)
+        grind_reply = grind_handle(self.grind, text)
+        if grind_reply is not None:   # 75 Hard / food / body logging in plain words: instant, no model
+            state.intent, state.route, state.confidence, state.current_goal = "quick", ["tools"], 1.0, "grind 75"
+            state.tool_log.append("grind75 -> allow, ok=True")
+            return Reply(grind_reply, state)
         if self._wants_briefing(text, now):
             emit_ = getattr(self, "_emit", lambda kind, data: None)
             state.intent, state.current_goal, state.route = "briefing", "morning briefing", ["tools"]

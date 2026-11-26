@@ -22,6 +22,7 @@ PREFIX = "enc1:"
 
 class NullCipher:
     enabled = False
+    token_key = b"aether-terms"
 
     def encrypt(self, text: str) -> str:
         return text
@@ -36,8 +37,11 @@ class Cipher:
     enabled = True
 
     def __init__(self, key: bytes):
+        import hashlib
         from cryptography.fernet import Fernet
         self.f = Fernet(key)
+        # search terms are stored as keyed hashes, so the keyword index never holds readable words
+        self.token_key = hashlib.sha256(b"aether-terms:" + key).digest()
 
     def encrypt(self, text: str) -> str:
         if text is None or text.startswith(PREFIX):
