@@ -135,7 +135,8 @@ def match(text: str, now: datetime, apps=None) -> Quick | None:
         if q:
             return q
     m = re.fullmatch(r"remind\s+me\s+(?!in\s+\d)(?:(?:to|about|that)\s+)?(.+)", t, re.I)
-    if m and not re.fullmatch(r"in\s+.+?\s+to\s+.+", m.group(1), re.I):
+    if m and not re.fullmatch(r"in\s+.+?\s+to\s+.+", m.group(1), re.I) \
+            and not re.match(r"(?:what|who|when|where|how|why|which|of\s+what)\b", m.group(1), re.I):  # "remind me what we said"
         q = todo(m.group(1))
         if q:
             return q
@@ -248,7 +249,8 @@ def match(text: str, now: datetime, apps=None) -> Quick | None:
         if site != target and (site in SITES or re.fullmatch(r"[\w-]+(\.[\w-]+)+", site)):
             return Quick("tool", tool="open_website", args={"site": site})
     m = re.fullmatch(r"(?:close|quit|exit|kill|shut)\s+(?:down\s+)?(?:the\s+|my\s+)?([\w .+-]{2,40}?)(?:\s+(?:app|window|for\s+me))?", low)
-    if m and m.group(1) not in {"it", "this", "that", "everything", "all", "pc", "computer", "laptop", "the pc"}:
+    if m and m.group(1) not in {"it", "this", "that", "everything", "all", "pc", "computer", "laptop", "the pc"} \
+            and can_open(m.group(1).strip()):   # only apps it knows ("close the door" is conversation)
         return Quick("tool", tool="app_close", args={"name": m.group(1).strip()})
     if re.fullmatch(r"(?:take\s+(?:a\s+)?|grab\s+(?:a\s+)?)?screen\s*shot|capture\s+(?:my\s+|the\s+)?screen|"
                     r"take\s+a\s+(?:screen\s*)?(?:capture|grab)(?:\s+of\s+(?:my|the)\s+screen)?", low):

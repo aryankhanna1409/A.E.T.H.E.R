@@ -78,3 +78,67 @@ class TextToSpeech:
             return True
         finally:
             self.speaking.clear()
+
+
+class WindowsVoice:
+    """Windows' built-in voice (SAPI), used when no Piper voice is installed, so the always-on listener can still
+    answer out loud instead of crashing. One hidden PowerShell process speaks line by line; stop() ends it."""
+
+    SCRIPT = ("Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+              "try { $s.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Male, "
+              "[System.Speech.Synthesis.VoiceAge]::Adult, 0, [Globalization.CultureInfo]'en-GB') } catch {}; "
+              "[Console]::InputEncoding = [Text.Encoding]::UTF8; "
+              "while (($l = [Console]::In.ReadLine()) -ne $null) { if ($l) { $s.Speak($l) }; "
+              "[Console]::Out.WriteLine('done'); [Console]::Out.Flush() }")
+
+    def __init__(self, cfg: VoiceConfig | None = None):
+        self._stop = threading.Event()
+        self.speaking = threading.Event()
+        self.proc = None
+        self._start()
+
+    def _start(self) -> None:
+        import subprocess
+        self.proc = subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-Command", self.SCRIPT],
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                     text=True, encoding="utf-8", creationflags=0x08000000)
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self.speaking.is_set() and self.proc and self.proc.poll() is None:
+            self.proc.kill()   # SAPI can't be interrupted from outside mid-sentence; a fresh one starts next time
+
+    def say(self, text: str) -> bool:
+        self._stop.clear()
+        self.speaking.set()
+        try:
+            for sentence in re.split(r"(?<=[.!?])\s+", speakable(text)):
+                if self._stop.is_set():
+                    return False
+                if not sentence:
+                    continue
+                if self.proc is None or self.proc.poll() is not None:
+                    self._start()
+                try:
+                    self.proc.stdin.write(sentence.replace("\n", " ") + "\n")
+                    self.proc.stdin.flush()
+                    self.proc.stdout.readline()   # 'done' once spoken; '' if stop() ended it
+                except OSError:
+                    return False
+            return not self._stop.is_set()
+        finally:
+            self.speaking.clear()
+
+
+def make_tts(cfg: VoiceConfig):
+    """Piper when a voice file is there, else (on Windows) the built-in Windows voice."""
+    import sys
+    try:
+        return TextToSpeech(cfg)
+    except Exception as e:
+        if sys.platform != "win32":
+            raise
+        from ..core.logging import log
+        log.warning("Piper voice unavailable (%s); speaking with the built-in Windows voice. "
+                    "For the better voice run scripts\\get_model.py voice.", e)
+        return WindowsVoice(cfg)

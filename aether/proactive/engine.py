@@ -327,6 +327,14 @@ class ProactiveEngine:
             self.db.commit()
         return urgent + [Notification(*r) for r in rows]
 
+    def alarms_since(self, after: float) -> list[dict]:
+        """Timers, alarms and timed reminders that went off after `after` (for the voice listener to say aloud).
+        Read-only: the tray and the app still get them as notifications."""
+        with self.lock:
+            rows = self.db.execute("SELECT id, created, title, body FROM notifications WHERE kind='timer' AND created>? "
+                                   "ORDER BY id", (after,)).fetchall()
+        return [{"id": r[0], "created": r[1], "title": r[2], "body": r[3]} for r in rows]
+
     def held(self) -> int:
         with self.lock:
             return self.db.execute("SELECT COUNT(*) FROM notifications WHERE delivered IS NULL AND dismissed=0").fetchone()[0]

@@ -84,13 +84,23 @@ def test_wake_listen_reply_cycle(monkeypatch):
 def test_barge_in_interrupts_speech(monkeypatch):
     va, _, tts, _ = _assistant(monkeypatch)
     va.state = "speaking"
+    for _ in range(10):
+        va.step(QUIET)  # the first 300 ms learn how loud AETHER's own voice is in the mic (quiet here)
     for _ in range(5):
         va.step(LOUD)
     va.step(QUIET)  # a pause resets the count
     assert tts.stopped == 0
-    for _ in range(8):
+    for _ in range(12):
         va.step(LOUD)
     assert tts.stopped == 1 and va.state == "listening" and va.seg.started
+
+
+def test_its_own_voice_in_the_speakers_does_not_interrupt_it(monkeypatch):
+    va, _, tts, _ = _assistant(monkeypatch)
+    va.state = "speaking"
+    for _ in range(200):          # AETHER's voice echoing back from laptop speakers, as loud as speech
+        va.step(LOUD)
+    assert tts.stopped == 0 and va.state == "speaking"
 
 
 def test_vision_unconfigured_is_clear():

@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from ..app import build
 from ..core.logging import ensure_streams, setup_logging
+from ..core.version import code_version
 from ..neurosymbolic.rules import RuleEngine
 
 WEB = Path(__file__).parent / "web"
@@ -171,7 +172,14 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 "emergency_stop": aether.policy.emergency_stop,
                 "read_roots": aether.cfg.security.allowed_read_roots,
                 "write_roots": aether.cfg.security.allowed_write_roots,
-                "network": aether.cfg.security.network}
+                "network": aether.cfg.security.network, "version": code_version()}
+
+    @app.post("/api/shutdown")
+    def shutdown():
+        """Used by the tray after an update to replace a server that is still running the old code.
+        The server only listens on 127.0.0.1, so only programs on this PC can call it."""
+        threading.Timer(0.5, lambda: os._exit(0)).start()
+        return {"ok": True}
 
     # ---------------------------------------------------------------- speech profile (accent learning)
     heard = {"text": "", "t": 0.0}
@@ -755,6 +763,11 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.get("/api/notifications")
     def notifications():
         return {"items": [n.__dict__ for n in aether.proactive.deliver()], "held": aether.proactive.held()}
+
+    @app.get("/api/alarms")
+    def alarms(after: float = 0.0):
+        """Timers and timed reminders that rang after `after` (the always-listening voice says them aloud)."""
+        return {"items": aether.proactive.alarms_since(after), "now": time.time()}
 
     @app.post("/api/notifications/{nid}/dismiss")
     def dismiss(nid: int):
