@@ -7,7 +7,7 @@ from aether.optimization.advanced import (MOProblem, assignment_neighbours, crow
                                           differential_evolution, fast_nondominated_sort, nsga2,
                                           pareto_schedule, tabu_search)
 from aether.optimization.engine import parse_tasks, schedule_problem
-from aether.optimization.tuning import EvalCase, score
+from aether.optimization.tuning import score
 
 
 def test_nondominated_sort_and_crowding():

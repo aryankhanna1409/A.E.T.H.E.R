@@ -3,7 +3,6 @@ searchable history. Message text stays in the encrypted `turns` table."""
 from __future__ import annotations
 
 import sqlite3
-import threading
 import time
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS conversations (

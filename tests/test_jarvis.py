@@ -1,5 +1,4 @@
 """Jarvis batch 1: sentence-streamed speech, routines, spoken mode and persona, screen awareness."""
-import threading
 import time
 
 import pytest

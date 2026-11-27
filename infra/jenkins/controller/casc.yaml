@@ -1,0 +1,132 @@
+# Jenkins Configuration as Code for AETHER. Applied at every controller start, so this file (not the
+# web UI) is the source of truth. Values in ${...} come from the environment that bootstrap.sh writes.
+jenkins:
+  systemMessage: "AETHER CI/CD. Configured as code: infra/jenkins/controller/casc.yaml"
+  # The controller only schedules; builds run on agents.
+  numExecutors: 0
+  mode: EXCLUSIVE
+  # Agents connect over WebSocket through the HTTPS URL, so the raw TCP agent port stays closed.
+  slaveAgentPort: -1
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          name: "Administrator"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    globalMatrix:
+      entries:
+        - user:
+            name: "admin"
+            permissions:
+              - "Overall/Administer"
+        # Lets the public README show the build badge, and nothing else.
+        - user:
+            name: "anonymous"
+            permissions:
+              - "Job/ViewStatus"
+  crumbIssuer:
+    standard:
+      excludeClientIPFromCrumb: true
+  globalNodeProperties:
+    - envVars:
+        env:
+          # Set to "true" in .env once the Windows agent is connected (docs/CI_CD.md).
+          - key: "WINDOWS_AGENT_ENABLED"
+            value: "${WINDOWS_AGENT_ENABLED:-false}"
+  nodes:
+    - permanent:
+        name: "linux-1"
+        labelString: "linux"
+        numExecutors: 1
+        remoteFS: "/home/jenkins/agent"
+        mode: NORMAL
+        retentionStrategy: "always"
+        launcher:
+          ssh:
+            host: "agent-linux"
+            port: 22
+            credentialsId: "agent-ssh-key"
+            launchTimeoutSeconds: 60
+            maxNumRetries: 10
+            retryWaitTime: 15
+            # The agent is only reachable on the private Docker network and its host key changes
+            # whenever the image is rebuilt, so host key pinning adds nothing here.
+            sshHostKeyVerificationStrategy: "nonVerifyingKeyVerificationStrategy"
+    - permanent:
+        name: "windows-1"
+        labelString: "windows"
+        numExecutors: 1
+        remoteFS: 'C:\jenkins'
+        mode: EXCLUSIVE
+        retentionStrategy: "always"
+        launcher:
+          inbound:
+            webSocket: true
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              scope: GLOBAL
+              id: "github-token"
+              description: "GitHub fine-grained token: checkout, commit statuses, releases"
+              username: "${GITHUB_USERNAME}"
+              password: "${GITHUB_TOKEN}"
+          - string:
+              scope: GLOBAL
+              id: "github-webhook-secret"
+              description: "Shared secret that signs GitHub webhook deliveries"
+              secret: "${GITHUB_WEBHOOK_SECRET}"
+          - basicSSHUserPrivateKey:
+              scope: SYSTEM
+              id: "agent-ssh-key"
+              description: "Controller to Linux agent"
+              username: "jenkins"
+              privateKeySource:
+                directEntry:
+                  privateKey: "${readFile:/run/secrets/agent_ed25519}"
+
+unclassified:
+  location:
+    url: "${JENKINS_URL}"
+  gitHubPluginConfig:
+    hookSecretConfigs:
+      - credentialsId: "github-webhook-secret"
+
+jobs:
+  - script: |
+      multibranchPipelineJob('aether') {
+        displayName('AETHER')
+        description('Lint, tests, Windows installer and Mark releases for github.com/aryankhanna1409/A.E.T.H.E.R')
+        branchSources {
+          branchSource {
+            source {
+              github {
+                id('aether-github')
+                repoOwner('aryankhanna1409')
+                repository('A.E.T.H.E.R')
+                repositoryUrl('https://github.com/aryankhanna1409/A.E.T.H.E.R')
+                configuredByUrl(true)
+                credentialsId('github-token')
+                traits {
+                  // 1: build branches, except ones that are also open pull requests (those build as PR-n)
+                  gitHubBranchDiscovery { strategyId(1) }
+                  // 1: build each pull request merged with its target branch
+                  gitHubPullRequestDiscovery { strategyId(1) }
+                  // Pull requests from forks are not built: this agent should only run code from the owner.
+                }
+              }
+            }
+          }
+        }
+        orphanedItemStrategy {
+          discardOldItems { numToKeep(10) }
+        }
+        triggers {
+          // Webhooks trigger builds immediately; this daily scan only catches missed deliveries.
+          periodicFolderTrigger { interval('1d') }
+        }
+      }

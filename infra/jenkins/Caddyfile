@@ -1,0 +1,6 @@
+# HTTPS in front of Jenkins. JENKINS_HOST is a real DNS name; by default bootstrap.sh uses the
+# free <elastic-ip>.sslip.io name, so Let's Encrypt can issue a certificate with no domain to buy.
+{$JENKINS_HOST} {
+	encode gzip
+	reverse_proxy jenkins:8080
+}

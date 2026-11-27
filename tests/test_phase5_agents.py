@@ -2,7 +2,6 @@ from conftest import FakeLLM
 
 from aether.agents.executive import Executive
 from aether.agents.taskgraph import TaskGraph
-from aether.tools.registry import Tool
 
 
 def plan(tasks):

@@ -6,7 +6,10 @@
 ; kept on uninstall unless you tick the box.
 
 #define AppName "AETHER"
-#define AppVersion "0.11.0"
+; build_installer.ps1 passes /DAppVersion=<version from pyproject.toml>
+#ifndef AppVersion
+  #define AppVersion "0.0.0-dev"
+#endif
 
 [Setup]
 AppId={{6A0E2B7C-4F1D-4C59-9B8E-AE7E3A11E0F1}

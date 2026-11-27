@@ -1,7 +1,6 @@
 import sys
 from pathlib import Path
 
-import pytest
 
 from aether.neurosymbolic.policy import Decision
 

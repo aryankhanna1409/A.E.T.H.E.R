@@ -1,0 +1,47 @@
+# Jenkins for AETHER: Caddy (HTTPS) -> Jenkins controller -> Linux agent over SSH.
+# Started by bootstrap.sh, which writes .env and the agent key pair first.
+name: aether-jenkins
+
+services:
+  caddy:
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      JENKINS_HOST: ${JENKINS_HOST:?set in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - jenkins
+
+  jenkins:
+    build: ./controller
+    restart: unless-stopped
+    # Not published on the host: only Caddy (HTTPS) reaches it. The Windows agent connects over
+    # WebSocket through the same HTTPS URL, so port 50000 is not needed either.
+    expose:
+      - "8080"
+    env_file: .env
+    environment:
+      JENKINS_URL: https://${JENKINS_HOST}/
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - ./secrets/agent_ed25519:/run/secrets/agent_ed25519:ro
+
+  agent-linux:
+    build: ./agent
+    restart: unless-stopped
+    environment:
+      JENKINS_AGENT_SSH_PUBKEY: ${JENKINS_AGENT_SSH_PUBKEY:?set by bootstrap.sh}
+    volumes:
+      - agent_home:/home/jenkins
+
+volumes:
+  jenkins_home:
+  agent_home:
+  caddy_data:
+  caddy_config:

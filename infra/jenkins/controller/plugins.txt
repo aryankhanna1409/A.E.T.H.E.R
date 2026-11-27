@@ -1,0 +1,15 @@
+# Resolved to the newest versions compatible with the pinned Jenkins LTS at image build time.
+configuration-as-code
+job-dsl
+workflow-aggregator
+pipeline-stage-view
+git
+github
+github-branch-source
+ssh-slaves
+credentials-binding
+matrix-auth
+junit
+coverage
+embeddable-build-status
+timestamper
