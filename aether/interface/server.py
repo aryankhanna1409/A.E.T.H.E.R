@@ -95,6 +95,11 @@ class CorrectionIn(BaseModel):
     meant: str
 
 
+class BusEventIn(BaseModel):
+    kind: str
+    data: dict = {}
+
+
 class PresenceIn(BaseModel):
     state: str
     seconds: float = 30
@@ -140,7 +145,21 @@ def create_app(config_path: str | None = None) -> FastAPI:
     pending = Pending()
     aether, problem = build(config_path, confirm=pending.ask)
     app = FastAPI(title="AETHER")
+    app.state.aether = aether
     last = {"state": None}
+
+    @app.get("/api/world")
+    def world():
+        return aether.world.estimate().json()
+
+    @app.get("/api/memory-nets")
+    def memory_nets():
+        return {"reranker": aether.mem_ranker.info(), "working": aether.working.lines()}
+
+    @app.get("/api/relay")
+    def relay_info():
+        from . import relay
+        return relay.info(aether)
 
     @app.get("/")
     def index():
@@ -164,7 +183,40 @@ def create_app(config_path: str | None = None) -> FastAPI:
     def set_presence(body: PresenceIn):
         state = body.state if body.state in {"idle", "listening", "thinking", "speaking"} else "idle"
         presence.update(state=state, until=time.time() + max(1.0, min(body.seconds, 600.0)))
+        aether.bus.publish("presence", {"state": state})
         return {"state": state}
+
+    # ---------------------------------------------------------------- event bus (voice, HUD, Nova, phone)
+    @app.get("/api/events")
+    def events_stream(after: int = -1, kinds: str = ""):
+        """Server-sent events from the bus. ?after=<seq> resumes; ?kinds=partial,presence filters."""
+        import json
+        want = {k for k in kinds.split(",") if k} or None
+        start = aether.bus.seq if after < 0 else after
+
+        def gen():
+            seq = start
+            yield f"event: hello\ndata: {json.dumps({'seq': seq, 'mark': MARK})}\n\n"
+            end = time.time() + 600     # browsers reconnect by themselves; keeps stale streams from piling up
+            while time.time() < end:
+                evs = aether.bus.wait(seq, 15.0, want)
+                if not evs:
+                    yield ": keep-alive\n\n"
+                    continue
+                for e in evs:
+                    seq = e.seq
+                    yield f"event: {e.kind}\ndata: {json.dumps(e.json(), default=str)}\n\n"
+        return StreamingResponse(gen(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @app.post("/api/events")
+    def events_publish(body: BusEventIn):
+        """For AETHER's own processes on this PC (the voice listener): partial transcripts and state."""
+        from ..core.bus import KINDS
+        if body.kind not in KINDS:
+            raise HTTPException(400, "unknown event kind")
+        e = aether.bus.publish(body.kind, {k: v for k, v in body.data.items() if isinstance(v, (str, int, float, bool))})
+        return {"seq": e.seq}
 
     @app.get("/api/status")
     def status():
@@ -889,6 +941,13 @@ def main(argv: list[str] | None = None) -> int:
     ensure_streams("server")   # started without a console (tray, sign-in): uvicorn needs a stdout
     setup_logging("INFO")
     app = create_app(args.config)
+    if app.state.aether.cfg.relay.enabled:
+        from . import relay
+        try:
+            relay.start(app.state.aether)
+        except Exception as e:
+            from ..core.logging import log
+            log.warning("phone relay didn't start: %s", e)
     if not args.no_browser:
         threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{args.port}")).start()
     os.environ["AETHER_URL"] = f"http://127.0.0.1:{args.port}"   # so "open the HUD" opens this server

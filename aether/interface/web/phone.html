@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#02060b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>AETHER</title>
+<style>
+:root { --bg: #02060b; --panel: #07111a; --line: #12293a; --text: #d9f4ff; --muted: #7393a8; --faint: #3c566a;
+        --accent: #36d6ff; --amber: #ffb347; --good: #3ee6a0; --bad: #ff5470;
+        --mono: "Cascadia Code", ui-monospace, "SF Mono", Menlo, monospace; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+             font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { display: flex; flex-direction: column; padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+       background: radial-gradient(500px 360px at 50% 30%, rgba(54, 214, 255, .10), transparent 70%), var(--bg); }
+header { display: flex; justify-content: space-between; align-items: center; padding: 14px 0 6px;
+         font: 600 12px var(--mono); letter-spacing: .3em; color: var(--accent); }
+header small { letter-spacing: .15em; color: var(--muted); }
+#log { flex: 1; overflow-y: auto; padding: 8px 0 16px; display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: 88%; padding: 10px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); white-space: pre-wrap; word-wrap: break-word; }
+.me { align-self: flex-end; border-color: rgba(54, 214, 255, .35); background: rgba(54, 214, 255, .08); }
+.ai { align-self: flex-start; }
+.ai::before { content: "AETHER"; display: block; font: 600 10px var(--mono); letter-spacing: .25em; color: var(--accent); margin-bottom: 4px; }
+#state { text-align: center; font: 12px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); min-height: 18px; }
+#partial { text-align: center; color: var(--muted); font-style: italic; min-height: 22px; padding: 0 8px; }
+#mic { position: relative; width: 132px; height: 132px; margin: 10px auto 12px; border-radius: 50%; border: 0; cursor: pointer;
+       background: radial-gradient(circle at 50% 45%, rgba(54, 214, 255, .35), rgba(54, 214, 255, .05) 60%, transparent 70%);
+       box-shadow: 0 0 0 2px rgba(54, 214, 255, .5), 0 0 40px rgba(54, 214, 255, .25) inset; touch-action: none; user-select: none; -webkit-user-select: none; }
+#mic::after { content: ""; position: absolute; inset: 38px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 30px var(--accent); transition: transform .15s; }
+#mic.rec { box-shadow: 0 0 0 2px var(--amber), 0 0 60px rgba(255, 179, 71, .35) inset; }
+#mic.rec::after { background: var(--amber); box-shadow: 0 0 30px var(--amber); transform: scale(1.15); }
+#mic.busy::after { animation: pulse .8s ease-in-out infinite; }
+@keyframes pulse { 50% { transform: scale(.8); opacity: .6; } }
+.hint { text-align: center; font-size: 12px; color: var(--faint); margin-bottom: 10px; }
+form { display: flex; gap: 8px; padding-bottom: 14px; }
+input { flex: 1; min-width: 0; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; }
+input:focus { outline: none; border-color: var(--accent); }
+button.send { padding: 0 16px; border-radius: 12px; border: 1px solid rgba(54, 214, 255, .5); background: rgba(54, 214, 255, .12); color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+<header><span>AETHER</span><small id="mark"></small></header>
+<div id="log"></div>
+<div id="state">connecting</div>
+<div id="partial"></div>
+<button id="mic" aria-label="Hold to talk"></button>
+<div class="hint">Hold to talk · or type below</div>
+<form id="f"><input id="t" placeholder="Ask AETHER…" autocomplete="off" enterkeyhint="send"><button class="send">Send</button></form>
+<script>
+const $ = s => document.querySelector(s);
+const log = $("#log"), stateEl = $("#state"), mic = $("#mic");
+const add = (who, text) => { const d = document.createElement("div"); d.className = "msg " + who; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; };
+const setState = s => { stateEl.textContent = s; };
+fetch("api/hello").then(r => r.json()).then(h => { $("#mark").textContent = h.mark.toUpperCase(); setState("ready"); }).catch(() => setState("not paired"));
+
+async function show(r) {
+  if (r.heard) add("me", r.heard);
+  if (r.text) add("ai", r.text);
+  mic.classList.remove("busy");
+  setState("ready");
+  if (r.voice) { const a = new Audio("api/voice.wav?" + Date.now()); a.play().catch(() => {}); }
+}
+$("#f").onsubmit = async e => {
+  e.preventDefault();
+  const text = $("#t").value.trim(); if (!text) return;
+  $("#t").value = ""; mic.classList.add("busy"); setState("thinking");
+  try { show(await (await fetch("api/text", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) })).json()); }
+  catch (err) { setState("offline"); mic.classList.remove("busy"); }
+};
+
+// ---- hold to talk: record 16 kHz mono and send it as WAV
+let ctx, src, proc, stream, chunks = [], rate = 48000;
+async function startRec() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  } catch (e) { setState("microphone blocked"); return; }
+  ctx = new (window.AudioContext || window.webkitAudioContext)(); rate = ctx.sampleRate;
+  src = ctx.createMediaStreamSource(stream); proc = ctx.createScriptProcessor(4096, 1, 1); chunks = [];
+  proc.onaudioprocess = e => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  src.connect(proc); proc.connect(ctx.destination);
+  mic.classList.add("rec"); setState("listening");
+}
+function wav(samples, sr) {
+  const ratio = sr / 16000, n = Math.floor(samples.length / ratio), out = new Int16Array(n);
+  for (let i = 0; i < n; i++) { const v = Math.max(-1, Math.min(1, samples[Math.floor(i * ratio)])); out[i] = v * 32767; }
+  const buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+  const w = (o, s) => [...s].forEach((c, i) => dv.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); dv.setUint32(4, 36 + n * 2, true); w(8, "WAVEfmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true);
+  dv.setUint16(22, 1, true); dv.setUint32(24, 16000, true); dv.setUint32(28, 32000, true); dv.setUint16(32, 2, true);
+  dv.setUint16(34, 16, true); w(36, "data"); dv.setUint32(40, n * 2, true); new Int16Array(buf, 44).set(out);
+  return new Blob([buf], { type: "audio/wav" });
+}
+async function stopRec() {
+  if (!ctx) return;
+  proc.disconnect(); src.disconnect(); stream.getTracks().forEach(t => t.stop()); await ctx.close(); ctx = null;
+  mic.classList.remove("rec"); mic.classList.add("busy"); setState("thinking");
+  const len = chunks.reduce((a, c) => a + c.length, 0), all = new Float32Array(len); let o = 0;
+  chunks.forEach(c => { all.set(c, o); o += c.length; });
+  try { show(await (await fetch("api/talk", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: wav(all, rate) })).json()); }
+  catch (err) { setState("offline"); mic.classList.remove("busy"); }
+}
+mic.addEventListener("pointerdown", e => { e.preventDefault(); startRec(); });
+["pointerup", "pointercancel", "pointerleave"].forEach(k => mic.addEventListener(k, () => stopRec()));
+
+// ---- live state from the PC (also shows what AETHER says to the desk)
+try {
+  const es = new EventSource("api/events");
+  es.addEventListener("stage", e => { const d = JSON.parse(e.data).data; if (d.label && !d.done) setState(d.label); });
+  es.addEventListener("presence", e => { const d = JSON.parse(e.data).data; if (d.state && d.state !== "idle") setState(d.state); });
+  es.addEventListener("partial", e => { $("#partial").textContent = JSON.parse(e.data).data.text || ""; });
+  es.addEventListener("reply", e => { $("#partial").textContent = ""; });
+} catch (e) {}
+</script>
+</body>
+</html>

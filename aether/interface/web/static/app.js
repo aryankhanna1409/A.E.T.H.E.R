@@ -484,6 +484,39 @@ const Plans = {
   },
 };
 
+// ------------------------------------------------------------------ world model ("You right now")
+const World = {
+  async render(el) {
+    if (!el) return;
+    let w; try { w = await api("/api/world"); } catch (e) { el.remove(); return; }
+    const m = (k, label) => `<div><span>${label}</span><b>${esc(w.words[k])}</b><div class="wmeter"><i style="width:${Math.round(w[k] * 100)}%"></i></div></div>`;
+    el.innerHTML = `<h3><span class="grow">You right now</span><span class="faint mono" style="font-size:10px;letter-spacing:.1em">ESTIMATED</span></h3>
+      <div class="world-row">${m("energy", "Energy")}${m("focus", "Focus")}${m("load", "Load")}<div><span>Mood</span><b>${esc(w.mood)}</b></div></div>
+      ${Object.keys(w.why).length ? `<div class="meta muted" style="font-size:12px">Based on ${esc(Object.values(w.why).join("; "))}.</div>` : ""}
+      ${w.body ? `<div class="meta" style="margin-top:6px">75 Hard: ${esc(w.body)}</div>` : ""}
+      ${w.needs.length ? `<div style="margin-top:10px">${w.needs.map(n => `<div class="item"><div class="grow">▸ ${esc(n)}</div></div>`).join("")}</div>` : ""}`;
+  },
+};
+
+// ------------------------------------------------------------------ live strip: what AETHER hears and does (event bus)
+const Live = {
+  start() {
+    const el = $("#live"); if (!el || !window.EventSource) return;
+    let hide = null, seq = -1;
+    const show = (k, t, ms = 4000) => { $("#live-k").textContent = k; $("#live-t").textContent = t; el.classList.add("on"); clearTimeout(hide); hide = setTimeout(() => el.classList.remove("on"), ms); };
+    const connect = () => {
+      const es = new EventSource("/api/events?kinds=partial,heard,stage,device&after=" + seq);
+      const on = (kind, f) => es.addEventListener(kind, e => { const d = JSON.parse(e.data); seq = d.seq; f(d.data); });
+      on("partial", d => show("hearing", d.text || "", 2500));
+      on("heard", d => { if (d.spoken || d.origin !== "local") show(d.origin === "phone" ? "phone" : "heard", d.text); });
+      on("stage", d => { if (!d.done && d.label && el.classList.contains("on")) show("aether", d.label, 3000); });
+      on("device", d => show(d.device, d.state, 2500));
+      es.onerror = () => { es.close(); setTimeout(connect, 3000); };
+    };
+    connect();
+  },
+};
+
 RENDER.today = async (p) => {
   const [b, props, m] = await Promise.all([api("/api/brief"), api("/api/proposals"), api("/api/metrics")]);
   const waiting = props.filter(x => x.status === "proposed");
@@ -497,6 +530,7 @@ RENDER.today = async (p) => {
       <div class="card stat"><b>${m.turns || 0}</b><span>messages this week</span></div>
       <div class="card stat"><b>${waiting.length}</b><span>improvements waiting for you</span></div>
     </div>
+    <div class="card" id="world" style="margin-bottom:16px"></div>
     <div class="card" id="sched" style="margin-bottom:16px"></div>
     <div class="card" id="plans" style="margin-bottom:16px"></div>
     <div class="grid two">
@@ -512,6 +546,7 @@ RENDER.today = async (p) => {
       <div class="card span2" id="routines"></div>
     </div>`;
   Routines.render($("#routines", p));
+  World.render($("#world", p));
   Plans.render($("#plans", p));
   Awareness.render($("#deadlines", p), $("#focus", p));
   Schedule.render($("#sched", p));
@@ -989,6 +1024,14 @@ RENDER.settings = async (p) => {
       catch (e) { toast("Not saved", e.message, "error"); }
     };
   });
+  const phone = h(`<div class="card" style="margin-top:16px"><h3>Phone</h3><div id="relay" class="muted">…</div></div>`);
+  p.appendChild(phone);
+  api("/api/relay").then(r => {
+    $("#relay", phone).innerHTML = r.enabled
+      ? `<p>Open this on your phone (same Wi-Fi), accept the one-time certificate warning, and add it to your home screen:</p>
+         <pre class="out" style="user-select:all">${esc(r.url)}</pre><p class="meta">The link holds your pairing key: don't share it. Anything you ask from the phone that changes something still asks for approval here.</p>`
+      : `<p>Talk to AETHER from your phone anywhere in the house. Turn it on in aether.toml with <code>[relay] enabled = true</code> and restart; the link appears here.</p>`;
+  }).catch(() => phone.remove());
 };
 
 // ------------------------------------------------------------------ command palette
@@ -1087,6 +1130,7 @@ async function bootSequence() {
   await wait(650); finish();
 }
 bootSequence();
+Live.start();
 Inspector.init(api);
 HUD.init({ api, streamChat, onTurn: () => { refreshStatus(); Chat.root && Chat.loadConvos(); } });
 $("#hud-btn").onclick = () => HUD.open();

@@ -75,6 +75,9 @@ class ProactiveEngine:
                                   " VALUES (?,?,?,?,?,?)", (time.time(), "silent" if delivered else kind, title, body,
                                                             key, time.time() if delivered else None))
             self.db.commit()
+            bus = getattr(self.a, "bus", None)
+            if bus is not None and cur.rowcount and not delivered:
+                bus.publish("notify", {"kind": kind, "title": title[:120]})
         return cur.rowcount > 0
 
     # ---------------------------------------------------------- triggers

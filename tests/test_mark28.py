@@ -2,6 +2,7 @@ import time
 from datetime import datetime
 
 from aether.memory.recall import topic_of, window
+from aether.core.version import MARK
 from aether.proactive.review import week_bounds
 
 NOW = datetime(2026, 11, 27, 15, 0)   # a Friday
@@ -52,8 +53,8 @@ def test_status_report_and_weekly_review(make_aether):
     a = make_aether()
     a.clock = lambda: NOW
     out = a.handle("status report").text
-    assert "Mark XXVIII" in out and "Memory" in out and "Brain" in out
-    assert "Mark XXVIII" in a.handle("Nova, run diagnostics").text
+    assert MARK in out and "Memory" in out and "Brain" in out
+    assert MARK in a.handle("Nova, run diagnostics").text
     a.grind.set_field("weight", 62.6, "2026-11-23")
     a.grind.set_field("weight", 63.0, "2026-11-27")
     a.grind.set_target_weight(67)
