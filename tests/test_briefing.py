@@ -7,7 +7,7 @@ from conftest import FakeLLM
 from test_webapp import client
 
 from aether.proactive.briefing import is_greeting, is_request
-from aether.tools.online import Online, parse_feed
+from aether.tools.online import parse_feed
 
 GEO = {"results": [{"name": "Vellore", "latitude": 12.92, "longitude": 79.13, "country": "India", "admin1": "Tamil Nadu"}]}
 FORECAST = {"current": {"temperature_2m": 24.6, "weather_code": 2},

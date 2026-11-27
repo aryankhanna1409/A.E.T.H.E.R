@@ -1,0 +1,13 @@
+# Lint settings for CI (Jenkinsfile "Lint" stage) and local runs: `ruff check .`
+# Kept to real defects (syntax errors, undefined names, unused imports and variables) so the
+# gate stays meaningful without restyling the codebase.
+target-version = "py311"
+line-length = 120
+extend-exclude = ["docs", "installer", "desktop"]
+
+[lint]
+select = ["E9", "F"]
+
+[lint.per-file-ignores]
+# FastAPI routes are registered by their decorators; two handlers share the name `index` on purpose.
+"aether/interface/server.py" = ["F811"]

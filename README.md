@@ -205,6 +205,10 @@ Structured outputs are enforced with a JSON grammar, so even small models return
 
 `python -m aether.evals.symbolic` asks your model the same 66 questions three ways: alone, with the usual retrieved notes (RAG), and through the full AETHER pipeline. The questions are about a small synthetic world (three families, their homes, jobs, studies, projects and allergies, some of which changed), so the run is the same every time and nothing personal is involved. It measures recall, multi-hop answers that need rules, updated facts, questions it cannot know, false premises and consistency across paraphrases, all scored by code, plus a hallucination rate. Open `bench_symbolic\report.html` for the charts and every answer. Add `--limit 3` for a five-minute look.
 
+## Continuous integration
+
+Every push and pull request is linted and tested by Jenkins, which runs on AWS EC2 and is set up entirely as code (Terraform, Docker Compose, Jenkins Configuration as Code). On `main` a Windows agent builds the installer, and each new Mark is published as a GitHub release with the installer attached. The pipeline is in [`Jenkinsfile`](Jenkinsfile), and [docs/CI_CD.md](docs/CI_CD.md) covers how it works and how to set it up.
+
 ## Safety model
 
 * AETHER starts **read-only** inside the folders you list. Writing needs a separate write root **and** your approval each time.

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from conftest import FakeLLM
 
-from aether.core.crypto import Cipher, NullCipher, load_cipher
+from aether.core.crypto import Cipher, load_cipher
 from aether.memory.store import MemoryStore
 from aether.security.injection import neutralize, scan
 
@@ -175,7 +175,6 @@ def test_morning_brief_and_checkin(make_aether):
 
 
 def test_old_goals_are_not_news(make_aether):
-    from aether.cognition.orchestrator import Aether
     a = make_aether()
     gid = a.graph.new_goal("old goal")
     a.graph.set_goal(gid, "done", "r")

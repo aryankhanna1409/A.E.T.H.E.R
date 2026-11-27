@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .kg import INVERSES, SYMMETRIC, KnowledgeGraph, Triple
+from .kg import INVERSES, SYMMETRIC, KnowledgeGraph
 
 ATOM = re.compile(r"(!?)(\w+)\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*\)")
 

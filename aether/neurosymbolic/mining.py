@@ -24,7 +24,7 @@ import time
 from collections import Counter, defaultdict
 from datetime import datetime
 
-from ..retrieval.lexical import STOP, tokens
+from ..retrieval.lexical import STOP
 from .kg import INVERSES, SYMMETRIC, KnowledgeGraph
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS suggestions (id INTEGER PRIMARY KEY, kind TEXT, key TEXT UNIQUE, text TEXT,
