@@ -526,3 +526,26 @@ pre.out { white-space: pre-wrap; font: 12.5px/1.55 var(--mono); background: var(
 .focus-now span { color: var(--muted); }
 .card .bar { height: 6px; border-radius: 999px; background: var(--line2); overflow: hidden; margin-bottom: 8px; }
 .card .bar i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+
+/* ---------- Mark XXVIII */
+.mark { font: 600 10px var(--mono); letter-spacing: .14em; padding: 2px 7px; border-radius: 6px; color: var(--accent2);
+        border: 1px solid color-mix(in srgb, var(--accent2) 40%, transparent); margin-left: -4px; align-self: center; }
+#boot { position: fixed; inset: 0; z-index: 9999; display: grid; place-content: center; justify-items: center; gap: 8px;
+        background: radial-gradient(700px 420px at 50% 42%, rgba(143, 123, 255, .16), transparent 70%), var(--bg);
+        transition: opacity .55s ease, transform .55s ease; cursor: pointer; }
+#boot.out { opacity: 0; transform: scale(1.03); pointer-events: none; }
+.boot-orb { position: relative; width: 120px; height: 120px; margin-bottom: 18px; }
+.boot-orb i { position: absolute; inset: 0; border-radius: 50%; border: 2px solid transparent;
+              background: linear-gradient(var(--bg), var(--bg)) padding-box, var(--grad) border-box; animation: bootspin 2.4s linear infinite; }
+.boot-orb i:nth-child(2) { inset: 18px; animation-duration: 1.7s; animation-direction: reverse; opacity: .8; }
+.boot-orb i:nth-child(3) { inset: 42px; background: var(--grad); animation: breathe 1.4s ease-in-out infinite; box-shadow: 0 0 40px var(--accent-glow); }
+@keyframes bootspin { to { transform: rotate(360deg); } }
+.boot-name { font: 700 30px var(--display); letter-spacing: .6em; margin-right: -.6em; background: var(--grad);
+             -webkit-background-clip: text; background-clip: text; color: transparent; }
+.boot-mark { font: 600 12px var(--mono); letter-spacing: .5em; margin-right: -.5em; color: var(--muted); }
+.boot-log { list-style: none; padding: 0; margin: 22px 0 0; width: min(420px, 86vw); font: 12.5px/1.9 var(--mono); color: var(--muted); }
+.boot-log li { display: flex; justify-content: space-between; gap: 16px; border-bottom: 1px dashed var(--line); animation: bootin .25s ease both; }
+.boot-log b { font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: .12em; }
+@keyframes bootin { from { opacity: 0; transform: translateY(4px); } }
+.boot-skip { margin-top: 18px; font-size: 11px; color: var(--faint); }
+#boot[hidden] { display: none; }

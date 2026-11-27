@@ -70,6 +70,8 @@ from ..optimization import dayplan
 from ..proactive.digest import Digest
 from ..proactive.digest import handle as digest_handle
 from ..memory.plans import handle as plans_handle
+from ..memory.recall import recall as recall_by_date
+from ..proactive import review
 from .perception import perceive
 from ..tools.todos import todo_tools
 from ..tools.apps import Apps, app_tools
@@ -508,7 +510,8 @@ class Aether:
             return Reply(r.output if r.ok or r.decision == "deny" else f"That didn't work: {r.output}", state)
         sp = getattr(self, "_spoken", False)
         grind_reply = grind_handle(self.grind, text) or plans_handle(self.plans, text, sp) or \
-            digest_handle(self.digest, text, sp) or dayplan.handle(self, text, sp)
+            digest_handle(self.digest, text, sp) or dayplan.handle(self, text, sp) or review.handle(self, text, sp, now) or \
+            recall_by_date(self.store, text, now, sp)
         if grind_reply is not None:   # 75 Hard / food / body logging in plain words: instant, no model
             state.intent, state.route, state.confidence, state.current_goal = "quick", ["tools"], 1.0, "grind 75 / plans"
             state.tool_log.append("grind75/plans -> allow, ok=True")

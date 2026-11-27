@@ -55,12 +55,14 @@ class IntentModel:
         self.cipher = cipher or NullCipher()   # your messages are encrypted here like everywhere else
         self.min_examples, self.min_accuracy, self.margin = min_examples, min_accuracy, margin
         self.W = None
+        self._index = None
         self.b = None
         self.coverage = 0.0
         self.last_neighbour = ""
         self.accuracy = 0.0
         self.trained_on = 0
         self.stats = {"skipped": 0, "deferred": 0}
+        self._training = threading.Lock()   # one training pass at a time; the index is swapped in whole
         with lock:
             db.execute("CREATE TABLE IF NOT EXISTS intent_examples (id INTEGER PRIMARY KEY, text TEXT, needs TEXT, "
                        "source TEXT, created REAL)")
@@ -88,11 +90,12 @@ class IntentModel:
                             (self.cipher.encrypt(text[:500]), json.dumps(needs), "model", time.time()))
             self.db.commit()
         n = self.count()
-        if self.W is None and n >= self.min_examples or n - self.trained_on >= 50:
+        if (self.W is None and n >= self.min_examples or n - self.trained_on >= 50) and not self._training.locked():
             threading.Thread(target=self.safe_train, daemon=True).start()
 
     def count(self) -> int:
-        return self.db.execute("SELECT COUNT(*) FROM intent_examples").fetchone()[0]
+        with self.lock:
+            return self.db.execute("SELECT COUNT(*) FROM intent_examples").fetchone()[0]
 
     def _features(self, texts: list[str]):
         import numpy as np
@@ -112,6 +115,10 @@ class IntentModel:
             return {"trained": False, "error": str(e)}
 
     def train(self, k: int = 5) -> dict:
+        with self._training:
+            return self._train(k)
+
+    def _train(self, k: int = 5) -> dict:
         """Index the examples. The model is k-nearest-neighbours over sentence embeddings: with a few hundred
         examples it beats a trained classifier, it explains itself ("this reads like: what did I tell you about my
         sister"), and its leave-one-out accuracy is an honest estimate of how often it agrees with the model."""
@@ -119,22 +126,25 @@ class IntentModel:
             import numpy as np
         except ImportError:  # pragma: no cover
             return {"trained": False}
-        rows = self.db.execute("SELECT text, needs FROM intent_examples ORDER BY id DESC LIMIT 5000").fetchall()
+        with self.lock:
+            rows = self.db.execute("SELECT text, needs FROM intent_examples ORDER BY id DESC LIMIT 5000").fetchall()
         if len(rows) < self.min_examples:
             return {"trained": False, "examples": len(rows)}
         texts = [self.cipher.decrypt(r[0]) for r in rows]
         X = self._features(texts)
         X /= np.linalg.norm(X, axis=1, keepdims=True) + 1e-9
         Y = np.asarray([[1.0 if lab in json.loads(r[1]) else 0.0 for lab in LABELS] for r in rows], dtype="float32")
-        self.W, self.b, self.texts, self.k = X, Y, texts, k
         sims = X @ X.T
         np.fill_diagonal(sims, -1)
         ok = n = 0
         for i in range(len(X)):
-            pred = self._vote(sims[i])
+            pred = self._vote(sims[i], Y, k)
             if pred is not None:
                 n += 1
                 ok += set(pred[0]) == {lab for lab, y in zip(LABELS, Y[i]) if y}
+        # swap the whole index in at once, so a message read meanwhile never sees half of an old and new model
+        self._index = (X, Y, texts, k)
+        self.W, self.b, self.texts, self.k = X, Y, texts, k
         self.accuracy = ok / n if n else 0.0
         self.coverage = n / len(X)
         self.trained_on = len(rows)
@@ -143,14 +153,15 @@ class IntentModel:
         return {"trained": True, "examples": len(rows), "accuracy": round(self.accuracy, 3),
                 "coverage": round(self.coverage, 3)}
 
-    def _vote(self, sims):
+    def _vote(self, sims, Y=None, k: int | None = None):
         import numpy as np
-        top = np.argsort(-sims)[: self.k]
+        Y = self.b if Y is None else Y
+        top = np.argsort(-sims)[: k or self.k]
         best = float(sims[top[0]])
         if best < self.threshold:
             return None
         w = np.clip(sims[top], 0, None)
-        p = (w[:, None] * self.b[top]).sum(0) / (w.sum() + 1e-9)
+        p = (w[:, None] * Y[top]).sum(0) / (w.sum() + 1e-9)
         sure = float(np.min(np.abs(p - 0.5)))
         if sure < self.margin:
             return None
@@ -163,17 +174,18 @@ class IntentModel:
 
     def predict(self, text: str) -> tuple[list[str], float] | None:
         """(needs, confidence) when the neighbours agree and are close, and the reading needs no tool arguments."""
-        if self.W is None or self.accuracy < self.min_accuracy:
+        if self._index is None or self.accuracy < self.min_accuracy:
             return None
         import numpy as np
+        W, Y, texts, k = self._index
         q = self._features([text])[0]
         q /= np.linalg.norm(q) + 1e-9
-        v = self._vote(self.W @ q)
+        v = self._vote(W @ q, Y, k)
         if v is None or not set(v[0]) <= SAFE or ACTION_OR_FACT.search(text):
             self.stats["deferred"] += 1
             return None
         self.stats["skipped"] += 1
-        self.last_neighbour = self.texts[v[2]]
+        self.last_neighbour = texts[v[2]]
         return v[0], v[1]
 
     def info(self) -> dict:

@@ -1,4 +1,4 @@
-# AETHER
+# AETHER · Mark XXVIII
 
 **Adaptive Engine for Thought, Heuristics, Evolution & Reasoning**: a fully local, neuro-symbolic personal assistant for Windows 11.
 
@@ -52,6 +52,13 @@ Most assistants are a black box. AETHER records everything it does and lets you 
 | Listening | Answering |
 | --- | --- |
 | ![HUD listening](docs/screenshots/hud-listen.png) | ![HUD answer](docs/screenshots/hud-answer.png) |
+
+## New in Mark XXVIII
+
+* **A boot sequence.** Opening the app runs a short systems check (neural core, symbolic engine, memory, search, uplink, voice) with each one coming online. Once per session; click or press any key to skip.
+* **"Status report."** Also "systems check" or "run diagnostics". Every part of AETHER in one go (brain, memory and encryption, facts and rules, the learned router, what's waiting for your OK, which nudges he's holding back, privacy, battery and RAM), plus how you're doing today.
+* **"What did we talk about yesterday?"** Recall by date: yesterday, last night, this morning, on Tuesday, last week, 3 days ago, on 24 November. Add a topic ("what did I say about the internship last week?") to search only that window. Code reads the dates and builds the answer from your chats and memories, so it's instant and never invents anything.
+* **"How did my week go?"** Your week in numbers: hours at the keyboard and your longest day, 75 Hard days completed, workouts, weight change and whether it's heading toward your target, plan progress, and what next week is about. On Sunday evening he offers it himself (`[proactive] weekly_review`), and it's a learned nudge, so it fades if you never open it.
 
 ## New in 1.0 ("AETHER Final")
 

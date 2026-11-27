@@ -173,7 +173,7 @@ def test_evening_review_and_brief_include_the_calendar(make_aether, tmp_path):
     write(tmp_path)
     a = make_aether(FakeLLM())
     a.reminders.add("submit the essay", "2026-11-22")
-    e = engine(a, event_alert_minutes=0)
+    e = engine(a, event_alert_minutes=0, weekly_review=False)   # 22 Nov is a Sunday: keep the week review out of the count
     assert e.tick(datetime(2026, 11, 22, 19, 0)) == 1  # only the overdue reminder before 20:00
     e.tick(datetime(2026, 11, 22, 20, 5))
     review = [n for n in e.deliver(datetime(2026, 11, 22, 20, 5)) if n.kind == "review"][0]
