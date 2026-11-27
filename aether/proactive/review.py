@@ -87,7 +87,22 @@ def status(a, spoken: bool = False, now: datetime | None = None) -> str:
         rows.append(("PC", pc, not (b and b.percent < 20 and not b.power_plugged)))
     except Exception:
         pass
+    mr = getattr(a, "mem_ranker", None)
+    if mr is not None:
+        try:
+            i = mr.info()
+            rows.append(("Memory nets", f"reranker {'on' if i['active'] else 'learning'} ({i['examples']} examples, "
+                                        f"{i['useful']} useful)", True))
+        except Exception:
+            pass
     you = []
+    w = getattr(a, "world", None)
+    if w is not None:
+        try:
+            st = w.estimate(now).json()["words"]
+            you.append(f"energy {st['energy']}, focus {st['focus']}, day {st['load']}")
+        except Exception:
+            pass
     g = getattr(a, "grind", None)
     if g is not None:
         try:

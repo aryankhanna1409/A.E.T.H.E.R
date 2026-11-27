@@ -39,6 +39,12 @@ class LLMConfig(BaseModel):
     # Run `python scripts/bench.py --compare-draft` to see whether it helps on your machine; 0 = off.
     draft_lookup_tokens: int = 0
     adapter_path: str = ""  # optional GGUF LoRA adapter trained on your corrections (see scripts/train_adapter.py)
+    # Fast talker (optional): a small model fully on the GPU answers spoken small talk and memory questions with the
+    # first word in ~0.2 s, while the main model keeps documents, research, tools and planning. On a 4 GB card pair
+    # Qwen2.5-1.5B (all layers, ~1.2 GB) with the 7B at ~14 layers. `scripts\get_model.py fast`.
+    fast_model_path: str = ""
+    fast_gpu_layers: int = -1
+    fast_context_tokens: int = 4096
 
 
 class EmbeddingConfig(BaseModel):
@@ -82,6 +88,14 @@ class ProactiveConfig(BaseModel):
     overwork_hours: float = 10  # "call it a day?" after this many hours at the keyboard in one day (0 = off)
     rest_days: bool = True      # suggest a rest day when training, sleep or late nights say so
     weekly_review: bool = True  # Sunday evening: offer "your week in review"
+
+
+class RelayConfig(BaseModel):
+    # Phone relay: talk to AETHER from your phone on the home Wi-Fi (aether/interface/relay.py). Off by default.
+    enabled: bool = False
+    host: str = "0.0.0.0"         # all network interfaces of this PC; the main app stays on 127.0.0.1
+    port: int = 8766
+    https: bool = True            # phones only allow the microphone on https (self-signed, accept once)
 
 
 class DayPlanConfig(BaseModel):
@@ -185,6 +199,13 @@ class VoiceConfig(BaseModel):
     stt_beam_size: int = 5        # beam search: slower than greedy but much better on accents
     stt_prompt: str = ""          # extra context for Whisper, e.g. "Robotics student. Terms: ROS 2, Nav2, SLAM."
     tts_voice_path: str = ""  # Piper voice .onnx, e.g. en_GB-alan-medium.onnx (see README)
+    tts_engine: str = "auto"      # auto (Kokoro, then Piper, then Windows) | kokoro | piper | windows
+    kokoro_voice: str = "bm_george"   # British male; blend voices: "bm_george:0.7,bm_lewis:0.3"; also bm_fable, bf_emma
+    kokoro_speed: float = 1.0
+    kokoro_model_path: str = ""   # default: models/kokoro/ from scripts\get_model.py kokoro
+    partials: bool = True         # transcribe while you speak (shown live in the HUD) and use it to tell when you're done
+    end_of_turn: bool = True      # end quickly after a finished request, wait longer when you trail off ("and, um...")
+    ack_after_s: float = 1.2      # say "One moment." if the answer hasn't started by then (0 = never)
     wake_word: str = "hey_jarvis"  # silent backup detector: openWakeWord built-in model name, or a path to your own .onnx
     wake_threshold: float = 0.5
     wake_verifier_path: str = ""   # made by scripts/learn_my_voice.py: tunes the backup wake model to your voice
@@ -226,6 +247,7 @@ class Config(BaseModel):
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
     dayplan: DayPlanConfig = Field(default_factory=DayPlanConfig)
+    relay: RelayConfig = Field(default_factory=RelayConfig)
     calendar: CalendarConfig = Field(default_factory=CalendarConfig)
     mail: MailConfig = Field(default_factory=MailConfig)
     online: OnlineConfig = Field(default_factory=OnlineConfig)

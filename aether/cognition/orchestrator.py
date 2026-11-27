@@ -72,6 +72,11 @@ from ..proactive.digest import handle as digest_handle
 from ..memory.plans import handle as plans_handle
 from ..memory.recall import recall as recall_by_date
 from ..proactive import review
+from ..core.bus import EventBus
+from ..memory.nets import MemoryReranker
+from ..memory.nets import WorkingMemory as LiveContext
+from ..proactive.world import WorldModel
+from ..proactive.world import handle as world_handle
 from .perception import perceive
 from ..tools.todos import todo_tools
 from ..tools.apps import Apps, app_tools
@@ -196,6 +201,7 @@ class Aether:
                                  "mail.draft", self._draft_tool))
         self.online = Online(cfg.online, allowed=lambda: self.cfg.security.network)
         self.digest = Digest(self)
+        self.bus = EventBus()
         self.tools.register(Tool("weather", "live weather and forecast (Open-Meteo, no account)",
                                  {"place": "city, optional (default: your location)", "when": "today or tomorrow"},
                                  "web.fetch", self._weather_tool))
@@ -224,6 +230,10 @@ class Aether:
         for t in todo_tools(self):
             self.tools.register(t)
         self.router = QueryRouter(cfg.memory, self.store, self.kg, reranker)
+        self.mem_ranker = MemoryReranker(self.db, self.lock)
+        self.router.learned = self.mem_ranker
+        self.working = LiveContext(self)
+        self.world = WorldModel(self)
         self.tools.register(Tool("research", "deep research: web + your documents, known vs new, cited brief",
                                  {"question": "the research question"}, "web.search", self._research))
         self.turns_since_summary: dict[int, int] = {}
@@ -377,15 +387,23 @@ class Aether:
         """Counterfactual over a snapshot of the knowledge graph; real memory is untouched."""
         return what_if(self.kg, [r.text for r in self.rules.rules], spec)
 
-    def handle(self, text: str, on_event: Callable[[str, dict], None] | None = None, spoken: bool = False) -> Reply:
+    def handle(self, text: str, on_event: Callable[[str, dict], None] | None = None, spoken: bool = False,
+               origin: str = "local") -> Reply:
         """One turn, measured. Metrics never change the answer; they feed the dashboard and proposals.
-        `on_event(kind, data)` receives live progress: stage, token, replace (see interface/server.py)."""
+        `on_event(kind, data)` receives live progress: stage, token, replace (see interface/server.py).
+        ``origin`` is "local" (typed or said at this PC) or a remote device ("phone"): a remote turn never skips the
+        Allow box, so an action asked for from the phone is still approved at the PC."""
         rec = TraceRecorder(text)
         forward = on_event or (lambda kind, data: None)
+        bus = getattr(self, "bus", None)
+        if bus is not None:
+            bus.publish("heard", {"text": text[:500], "origin": origin, "spoken": spoken})
 
         def emit(kind, data):
             rec.record(kind, data)
             forward(kind, data)
+            if bus is not None and kind == "stage":
+                bus.publish("stage", data)
         self._emit = emit
         self._streaming = on_event is not None
         self._spoken = spoken
@@ -402,7 +420,8 @@ class Aether:
         self._active_turns = getattr(self, "_active_turns", 0) + 1   # the indexer waits while this is > 0
         self._logged = False
         try:
-            with self.tools.asking(text):
+            import contextlib
+            with (self.tools.asking(text) if origin == "local" else contextlib.nullcontext()):
                 reply = self._handle(text)
             if not self._logged and reply.text:
                 self._log_exchange(text, reply.text)   # quick commands, routines, briefings: keep them in the chat
@@ -414,6 +433,12 @@ class Aether:
             if raw_llm is not None and isinstance(self.llm, TracingLLM):
                 self.llm = raw_llm
         reply.state.latency_ms = round((time.perf_counter() - start) * 1000, 1)
+        if bus is not None:
+            bus.publish("reply", {"text": reply.text[:2000], "origin": origin, "ms": reply.state.latency_ms})
+        try:
+            self.working.note_reply(reply.text, reply.state.tool_log)
+        except Exception:
+            pass
         self.last_reply = reply.text
         self.last_user_text = text
         reply.turn_id = self.meta.record_turn(reply.state, reply.state.latency_ms, reply.state.intent,
@@ -511,7 +536,7 @@ class Aether:
         sp = getattr(self, "_spoken", False)
         grind_reply = grind_handle(self.grind, text) or plans_handle(self.plans, text, sp) or \
             digest_handle(self.digest, text, sp) or dayplan.handle(self, text, sp) or review.handle(self, text, sp, now) or \
-            recall_by_date(self.store, text, now, sp)
+            recall_by_date(self.store, text, now, sp) or world_handle(self, text, sp, now)
         if grind_reply is not None:   # 75 Hard / food / body logging in plain words: instant, no model
             state.intent, state.route, state.confidence, state.current_goal = "quick", ["tools"], 1.0, "grind 75 / plans"
             state.tool_log.append("grind75/plans -> allow, ok=True")
@@ -605,17 +630,27 @@ class Aether:
         if self.llm is None:
             raise LLMUnavailable("No local model loaded. Set [llm].model_path in aether.toml (see README).")
         user_block = (context + "\n\n" if context else "") + f"<user_message>\n{text}\n</user_message>"
-        emit("stage", {"name": "generate", "label": "Writing"})
+        # Fast talker / deep thinker: a spoken reply that needs only conversation or your memories goes to the small
+        # model that sits fully on the GPU (first word in a fraction of a second); documents, research, tools,
+        # optimisation and anything sensitive go to the main model.
+        writer = self.llm
+        fast = getattr(self, "fast_llm", None)
+        if fast is not None and getattr(self, "_spoken", False) and set(plan.routes) <= {"direct", "memory"} \
+                and not tool_results and signal.level == "normal":
+            writer = fast
+            state.tool_log.append("fast talker")
+        emit("stage", {"name": "generate", "label": "Writing" if writer is self.llm else "Answering quickly",
+                       "brain": "fast" if writer is not self.llm else "main"})
         msgs = [Message("system", system), *history, Message("user", user_block)]
         if on_stream := (emit if getattr(self, "_streaming", False) and signal.level != "crisis" else None):
             parts = []
-            for tok in self.llm.stream(msgs, max_tokens=self.cfg.llm.max_reply_tokens,
+            for tok in writer.stream(msgs, max_tokens=self.cfg.llm.max_reply_tokens,
                                        temperature=self.cfg.llm.temperature):
                 parts.append(tok)
                 on_stream("token", {"text": tok})
             draft = "".join(parts)
         else:
-            draft = self.llm.chat(msgs, max_tokens=self.cfg.llm.max_reply_tokens, temperature=self.cfg.llm.temperature)
+            draft = writer.chat(msgs, max_tokens=self.cfg.llm.max_reply_tokens, temperature=self.cfg.llm.temperature)
         emit("stage", {"name": "generate", "done": True})
         streamed = draft
         emit("stage", {"name": "verify", "label": "Checking the answer against what I know"})
@@ -639,6 +674,10 @@ class Aether:
         web_n = sum(r.output.count("\nURL: ") for r in tool_results if r.tool == "web_search")
         draft, fake = citations.validate(draft, {"web": web_n, "doc": len(plan.documents),
                                                  "memory": len(plan.memories)})
+        try:   # which retrieved memories did the answer use? (teaches the memory reranker)
+            self.mem_ranker.observe(plan.memories, draft)
+        except Exception as e:
+            log.debug("reranker feedback skipped: %s", e)
         if fake:
             notices.append("Removed citations with no matching source: " + ", ".join(fake))
         grounded = None
@@ -805,6 +844,9 @@ class Aether:
         if ir.ambiguity and ir.confidence < 0.5:
             parts.append(f"The request is ambiguous ({ir.ambiguity}). Ask one short clarifying question.")
         ctx = []
+        wmb = self.working.block()
+        if wmb:
+            ctx.append(wmb)
         schedule = self.today_schedule()
         if schedule:
             ctx.append("<calendar>\nStill ahead today:\n" + schedule + "\n</calendar>")

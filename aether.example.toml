@@ -20,6 +20,9 @@ draft_lookup_tokens = 0          # speculative decoding by prompt lookup; try 10
 #   model_path = "C:/AETHER/models/qwen2.5-3b-instruct-q4_k_m.gguf"
 #   gpu_layers = -1
 #   context_tokens = 8192
+# Fast talker (Mark XXIX): a 1.5B fully on the GPU answers spoken small talk in a fraction of a second, the 7B keeps
+# the hard work. Download with scripts\get_model.py fast, then lower gpu_layers above to ~14 so both fit:
+# fast_model_path = "C:/AETHER/models/qwen2.5-1.5b-instruct-q4_k_m.gguf"
 temperature = 0.6
 max_reply_tokens = 1024
 
@@ -59,7 +62,12 @@ spotify = "spotify.exe"
 stt_model = "small.en"           # base.en is faster; medium.en is better on strong accents but ~3x slower
 stt_beam_size = 5
 stt_prompt = ""                   # extra context for Whisper, e.g. "Robotics student. Terms: ROS 2, Nav2, SLAM."
+tts_engine = "auto"              # Kokoro if installed (get_model.py kokoro), else Piper, else the Windows voice
+kokoro_voice = "bm_george"       # British; blend: "bm_george:0.7,bm_lewis:0.3"; also bm_fable, bm_daniel, bf_emma
 tts_voice_path = "C:/AETHER/models/voices/en/en_GB/alan/medium/en_GB-alan-medium.onnx"   # from get_model.py voice
+partials = true                  # live transcript while you speak; also decides when you've finished
+end_of_turn = true               # short pause after a finished request, longer when you trail off
+ack_after_s = 1.2                # "One moment." if the answer hasn't started by then (0 = off)
 wake_word = "hey_jarvis"
 wake_by_name = true              # also wake on "hey Nova" (checked with a tiny Whisper model)
 wake_verifier_path = ""          # set by scripts\learn_my_voice.py: tunes the backup wake model to your voice
@@ -71,6 +79,11 @@ model_path = ""                  # e.g. C:/AETHER/models/vision/Qwen2.5-VL-3B-In
 mmproj_path = ""                 # e.g. C:/AETHER/models/vision/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf
 handler = "qwen25vl"
 gpu_layers = 0
+
+[relay]
+# Talk to AETHER from your phone on the home Wi-Fi (Settings shows the link once this is on).
+enabled = false
+port = 8766
 
 [proactive]
 enabled = true

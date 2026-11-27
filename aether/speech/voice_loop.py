@@ -9,6 +9,12 @@ Run:  python -m aether.speech.voice_loop            (loads its own copy of AETHE
       python -m aether.speech.voice_loop --server   (uses the running server's model: what the tray starts)
 Wake it by saying "AETHER" or "Nova" (a command can follow in the same breath). The old "hey Jarvis" detector
 still runs quietly as a backup.
+
+Mark XXIX latency work:
+* partial transcripts while you talk (the quick Whisper model on what's been said so far, every ~0.6 s), shown live
+  in the HUD and used to decide when you've finished (speech/turn.py),
+* if the answer hasn't started after ``ack_after_s`` it says "One moment." from the phrase cache at once,
+* sentences are synthesized one ahead of playback, so there's no gap between them.
 """
 from __future__ import annotations
 
@@ -20,9 +26,27 @@ from ..core.config import VoiceConfig
 from ..core.logging import log
 from .chunker import SentenceChunker, clean
 from .profile import WAKE, WAKE_START, SpeechProfile, terms_from_memories
+from .turn import silence_for
 from .vad import Segmenter, rms
 
 FRAME_MS = 30
+PARTIAL_EVERY_MS = 600
+ACKS = ["One moment.", "Give me a second.", "Working on it."]
+
+
+class _After(threading.Thread):
+    """Run fn after a delay unless cancelled (a plain Timer, defined here so it's independent of test doubles)."""
+
+    def __init__(self, delay: float, fn):
+        super().__init__(daemon=True)
+        self.delay, self.fn, self.cancelled = delay, fn, threading.Event()
+
+    def run(self) -> None:
+        if not self.cancelled.wait(self.delay):
+            self.fn()
+
+    def cancel(self) -> None:
+        self.cancelled.set()
 FOLLOW_UP_S = 6
 WAKE_WINDOW_S = 8   # after the name, how long it waits for you to start talking
 LOCK_PORT = 8769   # one microphone listener at a time
@@ -188,6 +212,11 @@ class VoiceAssistant:
         self.wake = wake
         self.frames: queue.Queue = queue.Queue(maxsize=500)
         self.on_state = None  # called with the new state (idle/listening/thinking/speaking), e.g. to tell Nova
+        self.on_partial = None  # called with the live transcript while you speak (the HUD shows it)
+        self.partial = ""
+        self._partial_busy = False
+        self._partial_ms = 0
+        self._acks = 0
         self.state = "idle"
         self.follow_up_until = 0.0
         self.follow_ups = 0
@@ -218,10 +247,52 @@ class VoiceAssistant:
         except queue.Full:
             pass
 
+    # ---------------------------------------------------------------- partial transcripts and end of turn
+    def _partial_tick(self) -> None:
+        """While you're talking: every ~0.6 s of new audio, transcribe what's been said so far with the quick model
+        in the background. The text goes to the HUD and sets how long a pause ends the turn."""
+        if not getattr(self.cfg, "partials", True) or self._partial_busy or not self.seg.started:
+            return
+        heard_ms = len(self.seg.frames) * FRAME_MS
+        if heard_ms - self._partial_ms < PARTIAL_EVERY_MS:
+            return
+        model = self.name_stt or self.stt
+        if model is None:
+            return
+        import numpy as np
+        self._partial_ms, self._partial_busy = heard_ms, True
+        audio = np.concatenate(self.seg.frames)
+
+        def run():
+            try:
+                text = (model.raw(audio, beam_size=1) if hasattr(model, "raw") else model.transcribe(audio)).strip()
+                if text and self.seg.started:
+                    self.set_partial(text)
+            except Exception:  # pragma: no cover - a partial is only a preview
+                pass
+            finally:
+                self._partial_busy = False
+        threading.Thread(target=run, args=(), daemon=True).start()
+
+    def set_partial(self, text: str) -> None:
+        self.partial = text
+        if getattr(self.cfg, "end_of_turn", True):
+            self.seg.silence_ms = silence_for(text, self.cfg.silence_ms)
+        if self.on_partial:
+            try:
+                self.on_partial(text)
+            except Exception:  # pragma: no cover
+                pass
+
+    def _new_turn(self) -> None:
+        self.partial, self._partial_ms = "", 0
+        self.seg.silence_ms = self.cfg.silence_ms
+
     def handle_utterance(self, audio) -> str:
         """Transcribe, answer, and start speaking at the first complete sentence while the
         model is still writing the rest (see speech/chunker.py)."""
         self.state = "thinking"
+        self._new_turn()
         text = self.stt.transcribe(audio)
         if not text:
             self.state = "listening"
@@ -256,8 +327,9 @@ class VoiceAssistant:
         self.state = "thinking"
         log.info("heard: %s", text)
         self._gen += 1
-        gen, q, started, replaced = self._gen, queue.Queue(), [False], [False]
+        gen, q, started, replaced, said = self._gen, queue.Queue(), [False], [False], [False]
         chunker, streamed = SentenceChunker(), []
+        lock = threading.Lock()
 
         def start():
             if not started[0]:
@@ -270,16 +342,36 @@ class VoiceAssistant:
             if kind == "token" and not replaced[0]:
                 streamed.append(data.get("text", ""))
                 for sentence in chunker.feed(data.get("text", "")):
-                    q.put(sentence)
+                    with lock:
+                        said[0] = True
+                        q.put(sentence)
                     start()
             elif kind == "replace" and clean(data.get("text", "")) != clean("".join(streamed)):
                 replaced[0] = True  # the verifier changed what was said: stop and say the corrected answer
 
-        reply = self.aether.handle(text, on_event=on_event, spoken=True)
+        def acknowledge():
+            """Nothing to say yet after a second or so: "One moment." from the cache, so he never sounds frozen."""
+            with lock:
+                if said[0] or gen != self._gen:
+                    return
+                q.put(ACKS[self._acks % len(ACKS)])
+                self._acks += 1
+            start()
+        ack_s = float(getattr(self.cfg, "ack_after_s", 1.2) or 0)
+        timer = _After(ack_s, acknowledge) if ack_s > 0 else None
+        if timer:
+            timer.start()
+        try:
+            reply = self.aether.handle(text, on_event=on_event, spoken=True)
+        finally:
+            if timer:
+                timer.cancel()
+        with lock:
+            said[0] = True   # no acknowledgement once the answer is here
         self._last_reply = reply.text or ""
         self._drain()   # audio captured while it was thinking is stale (and may hold its own first words)
-        if replaced[0] or not started[0]:
-            if started[0]:
+        if replaced[0] or not streamed or not started[0]:
+            if replaced[0] and started[0]:
                 self.tts.stop()
                 self._gen += 1
                 gen, q, started[0] = self._gen, queue.Queue(), False
@@ -364,8 +456,11 @@ class VoiceAssistant:
             audio = self.seg.feed(frame)
             if audio is not None:
                 self.handle_utterance(audio)
-            elif not self.seg.started and self.follow_up_until and time.time() > self.follow_up_until:
+                return
+            if not self.seg.started and self.follow_up_until and time.time() > self.follow_up_until:
                 self.state, self.follow_up_until = "idle", 0.0
+                return
+            self._partial_tick()
 
     def say_alarms(self, brain: "RemoteAether", poll_s: float = 2.0) -> None:
         """With the server's brain: say timers and timed reminders out loud when they go off on the server."""
@@ -449,12 +544,29 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - needs a mi
             raise SystemExit(problem)
         va = VoiceAssistant(aether, aether.cfg.voice)
     va.on_state = lambda state: report_presence(state, args.port)
+    va.on_partial = lambda text: publish_event("partial", {"text": text}, args.port)
     va.state = "idle"
     try:
         va.run()
     finally:
         lock.close()
     return 0
+
+
+def publish_event(kind: str, data: dict, port: int = 8765) -> None:
+    """Best effort: put an event on the server's bus (the HUD shows partial transcripts from here)."""
+    import json
+    import urllib.request
+
+    def send():
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/api/events", method="POST",
+                                         data=json.dumps({"kind": kind, "data": data}).encode(),
+                                         headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=0.5).close()
+        except Exception:
+            pass
+    threading.Thread(target=send, daemon=True).start()
 
 
 def report_presence(state: str, port: int = 8765) -> None:

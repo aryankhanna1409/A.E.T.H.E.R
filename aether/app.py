@@ -27,6 +27,14 @@ def build(config_path: str | None = None, confirm: Callable[[str], bool] = lambd
         reranker = Reranker(cfg.memory.reranker_model) or None
         reranker = reranker if reranker.available else None
     aether = Aether(cfg, llm, embedder, confirm, reranker)
+    if llm is not None and cfg.llm.fast_model_path:
+        try:   # the fast talker: a small model fully on the GPU for spoken small talk (see [llm] fast_model_path)
+            aether.fast_llm = load_llm(cfg.llm.model_copy(update={
+                "model_path": cfg.llm.fast_model_path, "gpu_layers": cfg.llm.fast_gpu_layers,
+                "context_tokens": cfg.llm.fast_context_tokens, "adapter_path": "", "draft_lookup_tokens": 0}))
+            log.info("fast talker loaded: %s", cfg.llm.fast_model_path)
+        except Exception as e:
+            log.warning("fast talker not loaded (%s); the main model answers everything", e)
     if cfg.memory.watch_interval_s > 0 and cfg.security.allowed_read_roots:
         from .retrieval.watcher import index_roots
         roots = index_roots(cfg.security.allowed_read_roots, cfg.memory.index_roots)

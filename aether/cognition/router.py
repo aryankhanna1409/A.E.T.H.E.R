@@ -61,9 +61,13 @@ class QueryRouter:
 
         if "memory" in needs:
             plan.routes.append("memory")
-            plan.memories = self.store.search(message, k=self.cfg.rag_top_k, alpha=self.cfg.hybrid_alpha,
+            learned = getattr(self, "learned", None)
+            wide = self.cfg.rag_top_k * (2 if learned is not None and learned.active else 1)
+            plan.memories = self.store.search(message, k=wide, alpha=self.cfg.hybrid_alpha,
                                               layers=("semantic", "episodic", "procedural", "prospective"),
                                               min_score=self.cfg.rag_min_score * 0.6)
+            if learned is not None:   # memories that tend to help come first (memory/nets.py)
+                plan.memories = learned.rerank(plan.memories, self.cfg.rag_top_k)
             plan.kg_facts += self.kg.about("user")
             plan.reasons.append(f"memory: {len(plan.memories)} items, {len(plan.kg_facts)} facts about you")
         else:

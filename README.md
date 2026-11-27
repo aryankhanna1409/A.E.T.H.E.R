@@ -1,4 +1,4 @@
-# AETHER · Mark XXVIII
+# AETHER · Mark XXIX
 
 **Adaptive Engine for Thought, Heuristics, Evolution & Reasoning**: a fully local, neuro-symbolic personal assistant for Windows 11.
 
@@ -52,6 +52,33 @@ Most assistants are a black box. AETHER records everything it does and lets you 
 | Listening | Answering |
 | --- | --- |
 | ![HUD listening](docs/screenshots/hud-listen.png) | ![HUD answer](docs/screenshots/hud-answer.png) |
+
+## New in Mark XXIX
+
+Rebuilt around one idea: an assistant feels real because of how fast and how present he is, not raw IQ.
+
+* **He hears you as you speak.** While you talk, the quick Whisper model transcribes what you've said so far every ~0.6 s. It shows live at the bottom of the screen ("HEARING remind me to call mom and"), and it decides when you've finished. A finished request ("open spotify", anything ending in "?") ends after a short pause. A sentence that trails off on "and", "um" or "the" waits about 1.6 s, so he stops cutting you off (`[voice] partials`, `end_of_turn`).
+* **He never sounds frozen.** If the answer hasn't started after 1.2 s, he says "One moment." straight away, then the answer follows (`ack_after_s`). Phrases he says all the time are synthesized once and cached. The next sentence is synthesized while the current one plays, so there are no gaps.
+* **A real voice.** Kokoro, an 82M-parameter neural TTS, runs on the CPU with British voices (bm_george by default; also bm_lewis, bm_fable, bm_daniel and bf_emma). You can blend voices into your own: `kokoro_voice = "bm_george:0.7,bm_lewis:0.3"`. Alerts come out a touch quicker. Install it with `pip install kokoro-onnx`, then `scripts\get_model.py kokoro`. Piper and the Windows voice remain fallbacks.
+* **Three brains.**
+  * The reflex layer answers timers, apps, maths and similar requests in milliseconds without a model.
+  * An optional fast talker (Qwen2.5-1.5B fully on the GPU, `get_model.py fast` + `[llm] fast_model_path`) answers spoken small talk and memory questions.
+  * The 7B keeps documents, research, tools and planning, and "One moment." covers its thinking time.
+* **One live nervous system.** An event bus (`/api/events`) carries what he hears, which stage he's on, and what he says to every process: the voice listener, the app, the HUD, Nova and your phone.
+* **Talk from your phone.** Set `[relay] enabled = true` and Settings shows a link for your phone on the home Wi-Fi. Hold the button to talk, or type, and he answers in his own voice.
+  * The link is protected by a pairing key and served over https, because phones only allow the mic on https; you accept the certificate warning once.
+  * Anything asked from the phone that changes something still needs your OK at the PC.
+* **More memory nets.**
+  * *Working memory* goes into every prompt: what app you're in, how long you've been at it, this week's focus, what he just did, and a question he's waiting on you to answer.
+  * A *learned reranker* notes which retrieved memories each answer actually used. Once it has enough examples and proves itself on held-out data, the memories that tend to help come first. It retrains overnight with the rest of sleep consolidation.
+* **A model of you.** "How am I doing?" gives energy, focus, load and mood, estimated from your sleep, late nights, time of day, hours at the keyboard, calendar, what's due and 75 Hard. It also says what would help next ("Linear algebra in 25 min", "60 g of protein to go", "a five-minute break"). It's on Today ("You right now"), in his prompt and in the status report.
+* **A new look.** Deep navy-black with arc-reactor cyan and amber for anything needing attention: thin HUD frames with corner brackets, a faint grid, scanlines and monospace telemetry.
+
+**Honest limits on a 4 GB RTX 3050:**
+* Kokoro has no voice cloning. You can blend its voices, but cloning a specific voice needs XTTS/F5-class models that don't fit next to the LLM.
+* Kokoro runs on the CPU. It's quick on a Ryzen 5600H, and one-sentence lookahead hides the rest.
+* Partial transcripts use the CPU Whisper models; streaming GPU ASR (Parakeet) would need VRAM the LLM is using.
+* The fast talker plus the 7B means fewer 7B layers on the GPU. Start with the 7B at about 14 layers and run `scripts\tune_gpu.py`.
 
 ## New in Mark XXVIII
 
