@@ -9,6 +9,13 @@
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
+<div id="boot" hidden aria-hidden="true">
+  <div class="boot-orb"><i></i><i></i><i></i></div>
+  <div class="boot-name">AETHER</div>
+  <div class="boot-mark">MARK XXVIII</div>
+  <ul class="boot-log"></ul>
+  <div class="boot-skip">click or press any key to skip</div>
+</div>
 <div id="app">
   <nav id="rail" aria-label="Main">
     <div class="rail-logo" title="AETHER"><div class="mini-orb"></div></div>
@@ -26,7 +33,7 @@
   </nav>
 
   <header id="topbar">
-    <div class="crumb"><span class="brand">AETHER</span><span id="view-title">Chat</span></div>
+    <div class="crumb"><span class="brand">AETHER</span><span class="mark" title="AETHER Mark XXVIII">MK XXVIII</span><span id="view-title">Chat</span></div>
     <button id="palette-btn" class="ghost kbd-hint" title="Command palette">
       <svg><use href="#i-search"/></svg><span>Search or run a command</span><kbd>Ctrl K</kbd>
     </button>

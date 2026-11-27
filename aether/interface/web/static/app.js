@@ -1062,7 +1062,31 @@ document.addEventListener("keydown", e => {
 });
 window.addEventListener("hashchange", () => { const v = location.hash.slice(1); if (v && v !== S.view) go(v); });
 
-// ------------------------------------------------------------------ boot
+// ------------------------------------------------------------------ boot sequence (once per session)
+async function bootSequence() {
+  const el = $("#boot");
+  let seen = false; try { seen = sessionStorage.getItem("booted") === "1"; sessionStorage.setItem("booted", "1"); } catch (e) {}
+  if (seen || matchMedia("(prefers-reduced-motion: reduce)").matches || new URLSearchParams(location.search).has("hud")) return;
+  el.hidden = false;
+  let done = false;
+  const finish = () => { if (done) return; done = true; el.classList.add("out"); setTimeout(() => el.remove(), 600); };
+  el.onclick = finish; addEventListener("keydown", finish, { once: true });
+  const log = $(".boot-log", el);
+  const line = (txt, ok = true) => { const li = h(`<li><span>${esc(txt)}</span><b class="${ok ? "good" : "warn"}">${ok ? "online" : "check"}</b></li>`); log.appendChild(li); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  let s = null; try { s = await api("/api/status"); } catch (e) {}
+  const steps = s ? [
+    [s.model_loaded ? "Neural core" : "Neural core (no model loaded)", s.model_loaded],
+    ["Symbolic engine · " + s.facts + " facts", true],
+    ["Memory · " + s.memories + " memories" + (s.encrypted ? ", encrypted" : ""), true],
+    [s.embeddings.includes("BM25") ? "Search · keyword" : "Search · hybrid", true],
+    [s.network ? "Uplink · online lookups" : "Uplink · offline by choice", true],
+    ["Voice · listening for \u201cAETHER\u201d or \u201cNova\u201d", true],
+  ] : [["Server", false]];
+  for (const [t, ok] of steps) { if (done) return; await wait(230); line(t, ok); }
+  await wait(650); finish();
+}
+bootSequence();
 Inspector.init(api);
 HUD.init({ api, streamChat, onTurn: () => { refreshStatus(); Chat.root && Chat.loadConvos(); } });
 $("#hud-btn").onclick = () => HUD.open();

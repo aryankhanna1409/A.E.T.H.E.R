@@ -125,6 +125,7 @@ class ProactiveEngine:
                 n += self._queue("deadline", title, body, key)
             n += self._rest_triggers(now)
             n += self._watch_triggers(now)
+            n += self._review_trigger(now)
         except Exception:
             log.exception("awareness triggers failed")
         return n
@@ -138,6 +139,17 @@ class ProactiveEngine:
             body = "; ".join(h.title for h in new[:3]) + (f" (+{len(new) - 3} more)" if len(new) > 3 else "")
             n += self._queue("news", f"New on {query[:60]}", body, f"watch:{query}:{new[0].title[:40]}")
         return n
+
+    def _review_trigger(self, now: datetime) -> int:
+        """Sunday evening: offer the week in review (a learned nudge, so it fades if you never open it)."""
+        if not getattr(self.cfg, "weekly_review", True) or now.weekday() != 6 or not 18 <= now.hour < 22:
+            return 0
+        try:
+            from .review import weekly
+            body = weekly(self.a, spoken=True, now=now)
+        except Exception:
+            return 0
+        return self._queue("review", "Your week in review", body[:400], f"review:{now.date().isoformat()}")
 
     def _rest_triggers(self, now: datetime) -> int:
         """Rest days for someone who tends to overwork: a morning suggestion when training, sleep or late nights say

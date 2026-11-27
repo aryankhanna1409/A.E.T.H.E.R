@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from ..app import build
 from ..core.logging import ensure_streams, setup_logging
-from ..core.version import code_version
+from ..core.version import MARK, code_version
 from ..health import grind_api
 from ..neurosymbolic.rules import RuleEngine
 
@@ -174,7 +174,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 "emergency_stop": aether.policy.emergency_stop,
                 "read_roots": aether.cfg.security.allowed_read_roots,
                 "write_roots": aether.cfg.security.allowed_write_roots,
-                "network": aether.cfg.security.network, "version": code_version()}
+                "network": aether.cfg.security.network, "version": code_version(), "mark": MARK,
+                "encrypted": aether.store.cipher.enabled}
 
     @app.post("/api/shutdown")
     def shutdown():

@@ -81,6 +81,7 @@ class ProactiveConfig(BaseModel):
     deadline_lead_days: list[int] = Field(default_factory=lambda: [7, 3, 1])
     overwork_hours: float = 10  # "call it a day?" after this many hours at the keyboard in one day (0 = off)
     rest_days: bool = True      # suggest a rest day when training, sleep or late nights say so
+    weekly_review: bool = True  # Sunday evening: offer "your week in review"
 
 
 class DayPlanConfig(BaseModel):

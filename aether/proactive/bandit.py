@@ -16,7 +16,7 @@ import threading
 import time
 from datetime import datetime
 
-LEARNED = {"break", "rest", "deadline", "checkin", "news", "proposal", "goal", "lesson", "learning"}
+LEARNED = {"break", "rest", "deadline", "checkin", "news", "proposal", "goal", "lesson", "learning", "review"}
 SCHEMA = """CREATE TABLE IF NOT EXISTS nudge_arms (kind TEXT, part TEXT, a REAL DEFAULT 2.0, b REAL DEFAULT 1.0,
             PRIMARY KEY (kind, part));
 CREATE TABLE IF NOT EXISTS nudge_outcomes (nid INTEGER PRIMARY KEY, kind TEXT, part TEXT, outcome TEXT, at REAL);"""
@@ -44,6 +44,8 @@ class NudgePolicy:
         if kind not in LEARNED:
             return True
         a, b = self.arm(kind, part_of_day(when))
+        if a + b <= 3.0:
+            return True   # no outcomes yet for this kind at this time of day: always show it until there's evidence
         return self.rng.betavariate(a, b) >= self.floor
 
     def _update(self, nid: int, kind: str, part: str, outcome: str, da: float, db_: float) -> None:
