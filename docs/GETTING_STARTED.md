@@ -30,10 +30,10 @@ git clone https://github.com/aryankhanna1409/A.E.T.H.E.R C:\AETHER
 **If you haven't merged it yet**, take the newest branch directly. It already contains everything:
 
 ```powershell
-git clone -b jarvis-5 https://github.com/aryankhanna1409/A.E.T.H.E.R C:\AETHER
+git clone -b claude/project-thread-anhz9g https://github.com/aryankhanna1409/A.E.T.H.E.R C:\AETHER
 ```
 
-**No Git?** On the GitHub page, switch the branch dropdown to `jarvis-5` (or stay on `main` after merging). Click **Code → Download ZIP**, and unzip it so the files sit directly in `C:\AETHER` (you should see `README.md` and `start.bat` there).
+**No Git?** On the GitHub page, switch the branch dropdown to `claude/project-thread-anhz9g` (or stay on `main` after merging). Click **Code → Download ZIP**, and unzip it so the files sit directly in `C:\AETHER` (you should see `README.md` and `start.bat` there).
 
 ## 3. Set it up (one time, about 10 minutes)
 
@@ -108,7 +108,7 @@ Things to try:
 - **Ctrl+Alt+J** anywhere opens the voice screen. Hold **Space** and say "good morning".
 - In chat: "set a timer for 10 minutes for the pasta", "play lofi on youtube", "what's 15% of 2400", "take a note: buy a LiPo", "what's on tomorrow?", "remind me to submit the essay on friday".
 
-**Always listening.** Once the model has loaded, AETHER listens in the background. Just say **"Nova"**, **"Jarvis"** or **"AETHER"** (with or without "hey"). Nova turns amber, and you talk. You can also say the command in the same breath: "Jarvis, set a timer for five minutes". It uses the model the app already loaded, so it needs no extra GPU memory, and the microphone check uses very little CPU.
+**Always listening.** Once the model has loaded, AETHER listens in the background. Just say **"AETHER"** or **"Nova"** (with or without "hey"). Nova turns amber, and you talk. You can also say the command in the same breath: "Nova, set a timer for five minutes". He listens for about 8 seconds after you call him, and only keeps listening after a reply if he asked you something. It uses the model the app already loaded, so it needs no extra GPU memory, and the microphone check uses very little CPU.
 - **Mute the microphone:** tray menu, untick **Always listening (mic on)**. It stays muted after a restart until you tick it again.
 - If it doesn't respond, the reason is in `%LOCALAPPDATA%\AETHER\logs\voice.log`. In a noisy room, raise `[voice] vad_energy` in `aether.toml` a little (e.g. 0.02).
 - Without the tray, `.\.venv\Scripts\aether-voice` runs the same listener in a PowerShell window.
@@ -121,11 +121,11 @@ Speech-to-text is trained mostly on American and British voices, so it can trip 
 .\.venv\Scripts\python scripts\learn_my_voice.py
 ```
 
-It shows what it heard for each phrase and learns the words it gets wrong ("on" becomes "Aundh"). Then you say "hey Jarvis" and "hey Nova" a few times, which tunes the wake word to your voice. It prints how much more accurate it got. Run it again any time.
+It shows what it heard for each phrase and learns the words it gets wrong ("on" becomes "Aundh"). Then you say "AETHER" and "Nova" a few times, and it shows whether he heard his name each time. It prints how much more accurate it got. Run it again any time.
 
 After that it keeps learning: when the HUD mishears you, click what it heard, fix it and press Enter. When the same fix comes up twice, it remembers it.
 
-You can wake it with **"Nova"**, **"Jarvis"** or **"AETHER"** (with or without "hey"), and say a command in the same breath ("Nova, what's the time?").
+You can wake it with **"AETHER"** or **"Nova"** (with or without "hey"), and say a command in the same breath ("Nova, what's the time?").
 
 ### Meet Nova, your desktop companion
 

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Grind 75 · AETHER</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">75</div>
+        <div>
+          <div class="brand-name">Grind 75</div>
+          <div class="brand-sub" id="brand-sub">loading…</div>
+        </div>
+      </div>
+      <nav id="nav">
+        <button data-page="today" class="active"><span class="ico">☀️</span>Today</button>
+        <button data-page="food"><span class="ico">🍛</span>Food</button>
+        <button data-page="body"><span class="ico">💪</span>Body</button>
+        <button data-page="reading"><span class="ico">📖</span>Reading</button>
+        <button data-page="goals"><span class="ico">🎯</span>Goals</button>
+        <button data-page="journal"><span class="ico">✍️</span>Journal &amp; Coach</button>
+        <button data-page="settings"><span class="ico">⚙️</span>Settings</button>
+      </nav>
+      <div class="side-foot">
+        <div class="streak" id="streak"></div>
+        <div class="ai-pill" id="ai-pill">AI: checking…</div>
+        <a class="ai-pill" href="/" target="_top" style="display:block;margin-top:6px;text-decoration:none">← Back to AETHER</a>
+      </div>
+    </aside>
+    <main id="main"></main>
+  </div>
+  <div id="toast"></div>
+
+  <script src="bridge.js"></script>
+  <script src="foods.js"></script>
+  <script src="quotes.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
-"""Everyday skills: the things people actually ask a home-made Jarvis all day.
+"""Everyday skills: the things people actually ask a home assistant all day.
 
-Collected from popular "build your own Jarvis" projects and tutorials, and done
+Collected from popular "build your own assistant" projects and tutorials, and done
 properly here:
 
 - timers and alarms that ring even when the chat is closed ("set a timer for

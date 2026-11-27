@@ -5,7 +5,7 @@
 You read 20 short phrases aloud. For each one AETHER shows what it heard, and learns from the difference:
 - words it misheard go into your personal correction dictionary ("on" -> "Aundh")
 - names and terms go into the hotword list Whisper is given every time
-Then you say "hey Jarvis" and "hey Nova" a few times. Those clips tune the wake word to your voice.
+Then you say "AETHER" and "Nova" a few times, so you can see he hears his name in your accent.
 Run it again any time; it keeps what it learnt and adds to it. Your recordings stay in AETHER's data folder.
 """
 from __future__ import annotations
@@ -41,7 +41,7 @@ PHRASES = [
     "Wake me up at seven fifteen tomorrow.",
     "Nova, good morning. Brief me.",
 ]
-WAKE_PHRASES = ["Hey Jarvis", "Hey Jarvis", "Hey Jarvis", "Hey Jarvis", "Hey Nova", "Hey Nova", "Hey Nova"]
+WAKE_PHRASES = ["AETHER", "Hey AETHER", "AETHER, what's the time?", "Nova", "Hey Nova", "Nova, good morning"]
 
 
 def wer(a: str, b: str) -> float:
@@ -170,25 +170,21 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - needs a mi
 
     if not args.no_wake:
         print("\nNow the wake word. Say each one when asked, like you would to call AETHER from across the desk.\n")
-        positives = []
+        hits = 0
+        from aether.speech.profile import is_wake_phrase
         for i, phrase in enumerate(WAKE_PHRASES, 1):
             input(f"[{i}/{len(WAKE_PHRASES)}]  {phrase}   (Enter, then speak)")
             audio = record(cfg.voice, 4)
             if len(audio) < 1600:
                 continue
-            path = save_wav(clips / f"wake_{i:02d}.wav", audio, cfg.voice.sample_rate)
-            if "jarvis" in phrase.lower():
-                positives.append(path)
-            else:
-                heard = profile.apply(stt.raw(audio))
-                profile.learn(heard, phrase, confirmed=True)
-                print(f"        heard: {heard}")
-        out = cfg.home / "voice" / "hey_jarvis_verifier.pkl"
-        msg = train_wake_verifier(cfg.voice, positives, negatives, out)
-        print(msg)
-        if out.exists() and toml.exists():
-            set_toml_value(toml, "voice", "wake_verifier_path", out.as_posix())
-            print("aether.toml updated: [voice] wake_verifier_path")
+            save_wav(clips / f"wake_{i:02d}.wav", audio, cfg.voice.sample_rate)
+            heard = stt.raw(audio)
+            profile.learn(heard, phrase, confirmed=True)
+            ok = is_wake_phrase(heard)
+            hits += ok
+            print(f"        heard: {heard}   {'-> wakes him' if ok else '-> would NOT wake him'}")
+        print(f"\nHe heard his name {hits} of {len(WAKE_PHRASES)} times."
+              + ("" if hits >= len(WAKE_PHRASES) - 1 else ' If "AETHER" misses, "Nova" is the easier one to hear.'))
     print("\nDone. Restart AETHER (or aether-voice) to use it. Fix any misheard words by clicking them in the HUD;"
           " AETHER keeps learning from those.")
     return 0

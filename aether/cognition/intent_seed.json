@@ -1,0 +1,472 @@
+[
+[
+"what is a black hole",
+[
+"direct"
+]
+],
+[
+"explain recursion simply",
+[
+"direct"
+]
+],
+[
+"tell me a joke",
+[
+"direct"
+]
+],
+[
+"how does a transformer model work",
+[
+"direct"
+]
+],
+[
+"what's the difference between tcp and udp",
+[
+"direct"
+]
+],
+[
+"write a haiku about rain",
+[
+"direct"
+]
+],
+[
+"why is the sky blue",
+[
+"direct"
+]
+],
+[
+"explain big o notation",
+[
+"direct"
+]
+],
+[
+"how do I reverse a linked list in python",
+[
+"direct"
+]
+],
+[
+"what is gradient descent",
+[
+"direct"
+]
+],
+[
+"give me a motivational quote",
+[
+"direct"
+]
+],
+[
+"what does REST mean",
+[
+"direct"
+]
+],
+[
+"summarise the french revolution in three lines",
+[
+"direct"
+]
+],
+[
+"translate good night into hindi",
+[
+"direct"
+]
+],
+[
+"what is a hash map",
+[
+"direct"
+]
+],
+[
+"explain oauth like I'm five",
+[
+"direct"
+]
+],
+[
+"how do vector databases work",
+[
+"direct"
+]
+],
+[
+"what's the capital of australia",
+[
+"direct"
+]
+],
+[
+"define overfitting",
+[
+"direct"
+]
+],
+[
+"can you explain docker volumes",
+[
+"direct"
+]
+],
+[
+"difference between a process and a thread",
+[
+"direct"
+]
+],
+[
+"how many grams of protein in an egg",
+[
+"direct"
+]
+],
+[
+"what is langgraph used for",
+[
+"direct"
+]
+],
+[
+"explain the cap theorem",
+[
+"direct"
+]
+],
+[
+"what did I tell you about my sister",
+[
+"memory"
+]
+],
+[
+"do you remember where I live",
+[
+"memory"
+]
+],
+[
+"what's my thesis guide's name",
+[
+"memory"
+]
+],
+[
+"what did we discuss last week",
+[
+"memory"
+]
+],
+[
+"remind me what my internship role is",
+[
+"memory"
+]
+],
+[
+"what do you know about me",
+[
+"memory"
+]
+],
+[
+"who is my project partner",
+[
+"memory"
+]
+],
+[
+"when is my birthday",
+[
+"memory"
+]
+],
+[
+"what did I say about the rover project",
+[
+"memory"
+]
+],
+[
+"which certifications have I passed",
+[
+"memory"
+]
+],
+[
+"what was the name of that cafe I liked",
+[
+"memory"
+]
+],
+[
+"what are my goals",
+[
+"memory"
+]
+],
+[
+"what did we talk about yesterday",
+[
+"memory"
+]
+],
+[
+"do you remember my bulk target",
+[
+"memory"
+]
+],
+[
+"what's my cgpa",
+[
+"memory"
+]
+],
+[
+"what books have I read",
+[
+"memory"
+]
+],
+[
+"latest news on nvidia",
+[
+"web"
+]
+],
+[
+"what's the weather in pune today",
+[
+"web"
+]
+],
+[
+"current price of bitcoin",
+[
+"web"
+]
+],
+[
+"who won the match yesterday",
+[
+"web"
+]
+],
+[
+"search for the best laptop under 80k",
+[
+"web"
+]
+],
+[
+"what's new in python 3.14",
+[
+"web"
+]
+],
+[
+"latest aws certification changes",
+[
+"web"
+]
+],
+[
+"today's headlines",
+[
+"web"
+]
+],
+[
+"look up the mla-c01 exam syllabus",
+[
+"web"
+]
+],
+[
+"recent research on small language models",
+[
+"web"
+]
+],
+[
+"is there a new llama.cpp release",
+[
+"web"
+]
+],
+[
+"news about my company",
+[
+"web"
+]
+],
+[
+"summarise the pdfs in my research folder",
+[
+"documents"
+]
+],
+[
+"what do my notes say about kalman filters",
+[
+"documents"
+]
+],
+[
+"find the deadline in my project documents",
+[
+"documents"
+]
+],
+[
+"search my files for the budget",
+[
+"documents"
+]
+],
+[
+"what does my thesis draft say about yolo",
+[
+"documents"
+]
+],
+[
+"which of my documents mention lidar",
+[
+"documents"
+]
+],
+[
+"in my notes, what was the formula for dh parameters",
+[
+"documents"
+]
+],
+[
+"look through my folder for the invoice",
+[
+"documents"
+]
+],
+[
+"create a file called plan.md",
+[
+"tools"
+]
+],
+[
+"open my downloads folder",
+[
+"tools"
+]
+],
+[
+"take a screenshot",
+[
+"tools"
+]
+],
+[
+"delete the old draft",
+[
+"tools"
+]
+],
+[
+"rename report.docx to final.docx",
+[
+"tools"
+]
+],
+[
+"move the pdfs into the archive folder",
+[
+"tools"
+]
+],
+[
+"save this as a note",
+[
+"tools"
+]
+],
+[
+"run the backup script",
+[
+"tools"
+]
+],
+[
+"is riya my cousin if she is my aunt's daughter",
+[
+"symbolic"
+]
+],
+[
+"if the essay is due friday and I need three days when should I start",
+[
+"symbolic"
+]
+],
+[
+"check if my schedule has conflicts",
+[
+"symbolic"
+]
+],
+[
+"who is related to whom in my family",
+[
+"symbolic"
+]
+],
+[
+"plan my week around the exam and gym",
+[
+"optimize"
+]
+],
+[
+"find the best order for my tasks today",
+[
+"optimize"
+]
+],
+[
+"optimise my study schedule for five subjects",
+[
+"optimize"
+]
+],
+[
+"best way to fit 20 hours of work into this week",
+[
+"optimize"
+]
+],
+[
+"what's the latest on langchain and how does it compare to what I'm using",
+[
+"web",
+"memory"
+]
+],
+[
+"compare my notes on rag with the latest research",
+[
+"documents",
+"web"
+]
+]
+]

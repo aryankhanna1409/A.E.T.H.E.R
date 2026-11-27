@@ -79,6 +79,15 @@ class ProactiveConfig(BaseModel):
     focus_break_minutes: int = 90  # suggest a break after this long at the keyboard without one (0 = off)
     deadline_nudges: bool = True  # deadlines from the calendar, reminders and indexed documents, nudged early
     deadline_lead_days: list[int] = Field(default_factory=lambda: [7, 3, 1])
+    overwork_hours: float = 10  # "call it a day?" after this many hours at the keyboard in one day (0 = off)
+    rest_days: bool = True      # suggest a rest day when training, sleep or late nights say so
+
+
+class DayPlanConfig(BaseModel):
+    # "plan my day": the order for today, by simulated annealing (aether/optimization/dayplan.py)
+    peak_hours: list[int] = Field(default_factory=lambda: [9, 13])  # your sharpest hours, until AETHER learns them
+    gym_hour: int = 6            # usual training time
+    wind_down_hour: int = 22     # nothing is planned after this
 
 
 class LearningConfig(BaseModel):
@@ -101,10 +110,13 @@ class OnlineConfig(BaseModel):
     ])
     news_region: str = "IN"  # for topic searches ("news about robotics")
     briefing_headlines: int = 3
+    # Topics the "while you were away" digest favours, on top of your plan's current focus and your own terms
+    interests: list[str] = Field(default_factory=list)
+    watch_every_hours: float = 4   # how often the watchlist ("keep an eye on ...") is checked
 
 
 class BriefingConfig(BaseModel):
-    on_first_greeting: bool = True  # the first "hey jarvis" / "good morning" of the morning gives the briefing
+    on_first_greeting: bool = True  # the first "AETHER, good morning" / "good morning" of the morning gives the briefing
     window_start: str = "04:30"  # "morning" for the greeting trigger
     window_end: str = "12:00"
 
@@ -172,12 +184,17 @@ class VoiceConfig(BaseModel):
     stt_beam_size: int = 5        # beam search: slower than greedy but much better on accents
     stt_prompt: str = ""          # extra context for Whisper, e.g. "Robotics student. Terms: ROS 2, Nav2, SLAM."
     tts_voice_path: str = ""  # Piper voice .onnx, e.g. en_GB-alan-medium.onnx (see README)
-    wake_word: str = "hey_jarvis"  # openWakeWord built-in model name, or a path to your own .onnx
+    wake_word: str = "hey_jarvis"  # silent backup detector: openWakeWord built-in model name, or a path to your own .onnx
     wake_threshold: float = 0.5
-    wake_verifier_path: str = ""   # made by scripts/learn_my_voice.py: tunes "hey Jarvis" to your voice
+    wake_verifier_path: str = ""   # made by scripts/learn_my_voice.py: tunes the backup wake model to your voice
     # Say the assistant's name instead: short phrases are checked with a tiny Whisper model ("hey Nova").
     wake_by_name: bool = True
     wake_stt_model: str = "tiny.en"
+    # After a reply, keep listening without the name only when AETHER asked you something ("question"), always
+    # ("always", the old behaviour, which picks up TV and other people), or never ("off").
+    follow_up: str = "question"
+    follow_up_s: float = 6.0
+    follow_up_turns: int = 3     # at most this many replies in a row without saying the name again
     silence_ms: int = 900  # end of utterance after this much silence
     vad_energy: float = 0.012  # RMS level that counts as speech; raise in noisy rooms
     barge_in: bool = True  # interrupt AETHER by speaking while it talks
@@ -195,7 +212,7 @@ class VisionConfig(BaseModel):
 class Config(BaseModel):
     name: str = "AETHER"
     user_name: str = "Aryan"
-    persona: str = "jarvis"  # jarvis | neutral
+    persona: str = "aether"  # aether | neutral
     address_as: str = ""  # e.g. "sir"; empty = use the name naturally
     home: Path = Field(default_factory=default_home)
     llm: LLMConfig = Field(default_factory=LLMConfig)
@@ -207,6 +224,7 @@ class Config(BaseModel):
     vision: VisionConfig = Field(default_factory=VisionConfig)
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
+    dayplan: DayPlanConfig = Field(default_factory=DayPlanConfig)
     calendar: CalendarConfig = Field(default_factory=CalendarConfig)
     mail: MailConfig = Field(default_factory=MailConfig)
     online: OnlineConfig = Field(default_factory=OnlineConfig)
@@ -215,6 +233,7 @@ class Config(BaseModel):
     # Fast mode: short everyday messages skip the model's interpretation pass, the fact-check pass only runs when
     # the answer talks about people or things AETHER has facts on, and learning from the turn happens after the
     # reply instead of before it. Off = every turn takes the full (slower) path.
+    learned_router: bool = True  # a small classifier, distilled from the model, skips its reading pass when sure
     fast_mode: bool = True
 
     @property

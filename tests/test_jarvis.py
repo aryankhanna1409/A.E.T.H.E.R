@@ -87,7 +87,7 @@ def test_voice_loop_starts_speaking_while_the_model_is_still_writing():
     assert ae.spoken is True  # the voice loop asks for a short spoken answer
     assert tts.said[0] == "First, the essay is due at noon today." and tts.during[0]
     assert " ".join(tts.said).endswith("weekend plans tonight.")
-    assert va.state == "listening" and va.follow_up_until > 0
+    assert va.state == "idle"   # a statement, not a question: back to waiting for its name, not answering the room
 
 
 def test_voice_loop_says_the_corrected_answer_when_the_verifier_rewrites():

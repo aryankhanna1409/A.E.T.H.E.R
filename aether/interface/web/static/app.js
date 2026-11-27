@@ -37,9 +37,11 @@ async function api(path, opts = {}) {
   return ct.includes("json") ? r.json() : r;
 }
 
-function toast(title, body = "", kind = "", ms = 6000) {
+function toast(title, body = "", kind = "", ms = 6000, nid = null) {
   const t = h(`<div class="toast ${kind}"><b>${esc(title)}</b><button class="icon-btn" aria-label="Dismiss">✕</button>${body ? `<p>${esc(body)}</p>` : ""}</div>`);
-  $("button", t).onclick = () => t.remove();
+  // nudges teach AETHER what is worth showing: ✕ counts as "not useful", clicking the nudge as "useful"
+  $("button", t).onclick = (e) => { e.stopPropagation(); t.remove(); if (nid) api(`/api/notifications/${nid}/dismiss`, { method: "POST" }).catch(() => {}); };
+  if (nid) { t.style.cursor = "pointer"; t.onclick = () => { t.remove(); api(`/api/notifications/${nid}/acted`, { method: "POST" }).catch(() => {}); }; }
   $("#toasts").appendChild(t);
   if (ms) setTimeout(() => t.remove(), ms);
 }
@@ -53,7 +55,7 @@ const S = {
 };
 document.documentElement.dataset.theme = S.theme;
 
-const VIEWS = { chat: "Chat", today: "Today", memory: "Memory", knowledge: "Knowledge", goals: "Mission control", lab: "Lab", self: "Self", activity: "Activity", settings: "Settings" };
+const VIEWS = { chat: "Chat", today: "Today", grind: "Grind 75", memory: "Memory", knowledge: "Knowledge", goals: "Mission control", lab: "Lab", self: "Self", activity: "Activity", settings: "Settings" };
 
 function go(view) {
   if (!VIEWS[view]) return;
@@ -124,7 +126,7 @@ async function pollNotifications() {
     const r = await api("/api/notifications");
     for (const n of r.items) {
       if (n.kind === "timer") chime();
-      toast(n.title, n.body, "proactive", n.kind === "timer" ? 60000 : 15000);
+      toast(n.title, n.body, "proactive", n.kind === "timer" ? 60000 : 15000, n.id);
       if (document.hidden) notify("AETHER · " + n.title, n.body);
     }
   } catch {}
@@ -459,6 +461,29 @@ async function streamChat(text, on, { voice = false } = {}) {
 // ------------------------------------------------------------------ pages
 const RENDER = {};
 
+RENDER.grind = async (p) => {
+  p.classList.add("page-frame");
+  p.appendChild(h(`<iframe class="grind-frame" src="/grind/" title="Grind 75"></iframe>`));
+};
+
+const Plans = {
+  async render(box) {
+    const d = await api("/api/plans");
+    const t = d.today || {};
+    const list = xs => xs.map(x => `<div class="item"><div class="grow">${esc(x)}</div></div>`).join("");
+    box.innerHTML = `<h3><span class="grow">Plan${t.horizon ? " · " + esc(t.horizon) : ""}${t.days_left != null ? ` <span class="chip accent">${t.days_left} days to go</span>` : ""}</span><button class="ghost" id="plan-edit">Edit</button></h3>
+      ${t.horizon ? `${t.goal ? `<p class="muted">${esc(t.goal)} · ${t.done}/${t.total} done</p>` : ""}
+        <div class="grid two"><div><div class="meta">Every day</div>${list(t.daily || []) || '<div class="empty">No daily list.</div>'}</div>
+        <div><div class="meta">${esc(t.block || "Next up")}</div>${list(t.focus || []) || '<div class="empty">All done here.</div>'}</div></div>
+        ${(t.later || []).length ? `<div class="meta" style="margin-top:8px">Later: ${esc(t.later.join(" · "))}</div>` : ""}`
+      : `<div class="empty">No plan yet. Write one with a "## Now · until YYYY-MM-DD" section, a "### Daily" list and weekly blocks, and AETHER will lead with what matters this week.</div>`}
+      <div id="plan-editor" hidden><textarea class="field" id="plan-md" rows="16" style="width:100%;font-family:var(--mono)"></textarea>
+      <div class="row" style="margin-top:8px"><button class="primary" id="plan-save">Save plan</button><span class="muted">Say "what's my plan" or "done with …" to use it by voice.</span></div></div>`;
+    $("#plan-edit", box).onclick = () => { const ed = $("#plan-editor", box); ed.hidden = !ed.hidden; $("#plan-md", box).value = d.text || "# Plans\n## Now · until " + new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10) + "\nGoal: \n### Daily\n- [ ] \n## Later\n- [ ] \n"; };
+    $("#plan-save", box).onclick = async () => { await api("/api/plans", { method: "POST", body: { text: $("#plan-md", box).value } }); toast("Plan saved"); Plans.render(box); };
+  },
+};
+
 RENDER.today = async (p) => {
   const [b, props, m] = await Promise.all([api("/api/brief"), api("/api/proposals"), api("/api/metrics")]);
   const waiting = props.filter(x => x.status === "proposed");
@@ -473,6 +498,7 @@ RENDER.today = async (p) => {
       <div class="card stat"><b>${waiting.length}</b><span>improvements waiting for you</span></div>
     </div>
     <div class="card" id="sched" style="margin-bottom:16px"></div>
+    <div class="card" id="plans" style="margin-bottom:16px"></div>
     <div class="grid two">
       <div class="card"><h3><span class="grow">Briefing</span><button class="ghost" id="hear">☀ Hear it</button></h3><div class="md" id="brief-text">${markdown(b.text)}</div></div>
       <div class="card"><h3><span class="grow">Reminders</span></h3><div id="rem"></div>
@@ -486,6 +512,7 @@ RENDER.today = async (p) => {
       <div class="card span2" id="routines"></div>
     </div>`;
   Routines.render($("#routines", p));
+  Plans.render($("#plans", p));
   Awareness.render($("#deadlines", p), $("#focus", p));
   Schedule.render($("#sched", p));
   Inbox.render($("#inbox", p));
@@ -499,7 +526,7 @@ RENDER.today = async (p) => {
     try { const r = await api("/api/reminders", { method: "POST", body: { text, when: $("#rem-when", p).value.trim() || "today" } }); toast("Reminder set", `${r.text} · ${r.due}`); } catch (e) { toast("Couldn't add", e.message, "error"); }
     go("today");
   };
-  $("#plan", p).onclick = () => { go("chat"); Chat.t.value = "Give me a quick plan for today based on my reminders and goals."; Chat.send(); };
+  $("#plan", p).onclick = () => { go("chat"); Chat.t.value = "plan my day"; Chat.send(); };
 };
 
 // Awareness: deadlines spotted early, and how long the current stretch of focus has been.
@@ -870,7 +897,7 @@ RENDER.lab = async (p) => {
 };
 
 RENDER.self = async (p) => {
-  const [m, props, revs, learn] = await Promise.all([api("/api/metrics"), api("/api/proposals"), api("/api/reviews"), api("/api/learning").catch(() => null)]);
+  const [m, props, revs, learn, sug] = await Promise.all([api("/api/metrics"), api("/api/proposals"), api("/api/reviews"), api("/api/learning").catch(() => null), api("/api/suggestions").catch(() => ({ items: [], router: null }))]);
   const bars = (obj) => { const mx = Math.max(1, ...Object.values(obj)); return `<div class="bars">${Object.entries(obj).map(([k, v]) => `<div class="bar"><span>${esc(k || "direct")}</span><span class="track"><i style="width:${v / mx * 100}%"></i></span><span>${v}</span></div>`).join("")}</div>`; };
   const pct = x => x == null ? "–" : Math.round(x * 100) + "%";
   p.innerHTML = `<div class="page-head"><div class="grow"><h1>Self</h1><p>How AETHER has been doing over the last 7 days, and what it would change about itself.</p></div></div>
@@ -887,11 +914,20 @@ RENDER.self = async (p) => {
         <div class="meta" style="margin-top:10px">${learn.last_run ? `Last learning pass ${new Date(learn.last_run.started * 1000).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })} (${esc(learn.last_run.trigger || "")})` : "No learning pass yet: it runs when the PC is plugged in and you've been away for 30 minutes."} · ${esc(learn.report.adapter)}</div></div>
       <div class="card"><h3>Lessons from your corrections</h3>${learn.lessons.map(l => `<div class="item"><div class="grow">${esc(l.lesson || l.correction || "You marked this answer as wrong")}<div class="meta">${esc(l.question)}${l.uses ? ` · used ${l.uses}×` : ""}</div></div><button class="icon-btn" data-forget="${l.id}" title="Forget this lesson">✕</button></div>`).join("")
         || `<div class="empty">No corrections yet. When I get something wrong, just say so ("no, she lives in Delhi now") and I'll remember the fix.</div>`}</div></div>` : ""}
+    <div class="grid two" style="margin-bottom:16px">
+      <div class="card"><h3><span class="grow">Rules and habits I noticed</span><button class="ghost" id="mine-now" title="Look for new rules and habits now">Look now</button></h3>
+        ${sug.items.map(x => `<div class="item"><div class="grow"><span class="chip ${x.kind === "rule" ? "accent" : "good"}">${x.kind}</span> <code>${esc(x.text)}</code><div class="meta">${x.kind === "rule" ? `holds ${x.support}× in your facts, ${Math.round(x.confidence * 100)}% of the time` : `seen on ${x.support} different days`}</div></div>
+          <div class="row"><button class="primary" data-sg="${x.id}" data-a="1">Keep</button><button class="ghost" data-sg="${x.id}" data-a="">Drop</button></div></div>`).join("") || `<div class="empty">Nothing new. As your facts and days build up, I'll suggest rules (like works_at + located_in → works_in) and habits here, and only keep what you approve.</div>`}</div>
+      <div class="card"><h3>Learned router</h3>${sug.router ? `<p class="muted">A small model distilled from the main one reads simple messages itself, saving a model call each time.</p>
+        <div class="grid three"><div class="stat"><b>${sug.router.examples}</b><span>examples</span></div><div class="stat"><b>${pct(sug.router.accuracy)}</b><span>agrees with the model</span></div><div class="stat"><b>${sug.router.skipped}</b><span>model calls saved</span></div></div>
+        <div class="meta">${sug.router.active ? "On" : "Learning: it switches on once it agrees with the model at least 85% of the time"} · decides ${pct(sug.router.coverage)} of messages alone</div>` : ""}</div></div>
     <div class="grid two"><div class="card"><h3>Proposals</h3>${props.filter(x => x.status === "proposed").map(x => `<div class="item"><div class="grow"><b style="font-weight:600">${esc(x.title)}</b><div class="meta">${esc(x.rationale)}</div></div>
         <div class="row"><button class="primary" data-p="${x.id}" data-a="true">Approve</button><button class="ghost" data-p="${x.id}" data-a="false">Decline</button></div></div>`).join("") || `<div class="empty">Nothing to change right now.</div>`}
       ${props.filter(x => x.status !== "proposed").slice(0, 8).map(x => `<div class="item"><div class="grow muted">${esc(x.title)}</div><span class="chip ${x.status === "applied" ? "good" : ""}">${x.status}</span></div>`).join("")}</div>
     <div class="card"><h3>Self-reviews of finished goals</h3>${revs.map(r => `<div class="item"><div class="grow">Goal #${r.goal_id} · ${esc(r.status)}<div class="meta">${esc(r.went_well)} ${r.went_wrong && r.went_wrong !== "nothing" ? "· missed: " + esc(r.went_wrong) : ""}${r.lesson ? "<br>Lesson: " + esc(r.lesson) : ""}</div></div><span class="chip accent">${Math.round(r.score * 100)}%</span></div>`).join("") || `<div class="empty">No finished goals yet.</div>`}</div></div>`;
   const ln = $("#learn-now", p); if (ln) ln.onclick = async () => { await api("/api/learning/run", { method: "POST" }); toast("Learning", "Going through your corrections and memories now. This page updates when it's done."); setTimeout(() => location.hash === "#self" && RENDER.self(p), 8000); };
+  $$("[data-sg]", p).forEach(b => b.onclick = async () => { const r = await api(`/api/suggestions/${b.dataset.sg}`, { method: "POST", body: { accept: !!b.dataset.a } }); toast(r.message); RENDER.self(p); });
+  const mn = $("#mine-now", p); if (mn) mn.onclick = async () => { const r = await api("/api/suggestions/refresh", { method: "POST" }); toast(`${r.rules_suggested} rules, ${r.habits_suggested} habits found`); RENDER.self(p); };
   $$("[data-forget]", p).forEach(b => b.onclick = async () => { await api(`/api/learning/lessons/${b.dataset.forget}`, { method: "DELETE" }); RENDER.self(p); });
   $$("[data-p]", p).forEach(b => b.onclick = async () => { try { const r = await api(`/api/proposals/${b.dataset.p}?approve=${b.dataset.a}`, { method: "POST" }); toast(r.message); } catch (e) { toast("Not applied", e.message, "error"); } RENDER.self(p); });
 };
@@ -958,7 +994,7 @@ RENDER.settings = async (p) => {
 // ------------------------------------------------------------------ command palette
 const COMMANDS = [
   ["New chat", "Start a fresh conversation", "plus", () => { go("chat"); Chat.newChat(); }],
-  ...Object.entries(VIEWS).map(([k, v]) => [`Go to ${v}`, "", { chat: "chat", today: "sun", memory: "brain", knowledge: "graph", goals: "target", lab: "flask", self: "pulse", activity: "shield", settings: "gear" }[k], () => go(k)]),
+  ...Object.entries(VIEWS).map(([k, v]) => [`Go to ${v}`, "", { chat: "chat", today: "sun", grind: "flame", memory: "brain", knowledge: "graph", goals: "target", lab: "flask", self: "pulse", activity: "shield", settings: "gear" }[k], () => go(k)]),
   ["HUD mode", "Full-screen voice interface (Ctrl+Shift+H)", "orb", () => HUD.open()],
   ["Morning briefing", "Weather, calendar, what's due, email and headlines, read aloud", "sun", () => { HUD.open(); HUD.ask("brief me"); }],
   ["What's on my screen?", "Look at the screen with the local vision model (asks first)", "scan", () => { go("chat"); Chat.t.value = "Look at my screen. What's on it, and is there anything I should know?"; Chat.send(); }],
@@ -1021,7 +1057,7 @@ document.addEventListener("keydown", e => {
   else if (mod && e.key.toLowerCase() === "n") { e.preventDefault(); go("chat"); Chat.newChat(); }
   else if (mod && e.key === ".") { e.preventDefault(); S.showMind = !S.showMind; store.set("showMind", S.showMind); Chat.root && Chat.applyLayout(); }
   else if (mod && e.key === ",") { e.preventDefault(); go("settings"); }
-  else if (mod && /^[1-8]$/.test(e.key)) { e.preventDefault(); go(Object.keys(VIEWS)[+e.key - 1]); }
+  else if (mod && /^[1-9]$/.test(e.key)) { e.preventDefault(); go(Object.keys(VIEWS)[+e.key - 1]); }
   else if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); go("chat"); Chat.t.focus(); }
 });
 window.addEventListener("hashchange", () => { const v = location.hash.slice(1); if (v && v !== S.view) go(v); });

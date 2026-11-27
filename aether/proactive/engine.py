@@ -55,7 +55,9 @@ class ProactiveEngine:
         self.idle_probe = idle_seconds   # seconds since the last keyboard or mouse input (None where unknown)
         self.listeners: list = []  # called with each ringing timer, e.g. the voice loop says it out loud
         from .awareness import Awareness
+        from .bandit import NudgePolicy
         self.awareness = Awareness(aether, cfg)
+        self.policy = NudgePolicy(self.db, self.lock)
 
     # ---------------------------------------------------------- policy
     def quiet(self, now: datetime) -> bool:
@@ -121,8 +123,39 @@ class ProactiveEngine:
                 n += self._queue("break", *nudge)
             for title, body, key in self.awareness.deadline_nudges(now):
                 n += self._queue("deadline", title, body, key)
+            n += self._rest_triggers(now)
+            n += self._watch_triggers(now)
         except Exception:
             log.exception("awareness triggers failed")
+        return n
+
+    def _watch_triggers(self, now: datetime) -> int:
+        digest = getattr(self.a, "digest", None)
+        if digest is None:
+            return 0
+        n = 0
+        for query, new in digest.check_watches(getattr(self.a.cfg.online, "watch_every_hours", 4)):
+            body = "; ".join(h.title for h in new[:3]) + (f" (+{len(new) - 3} more)" if len(new) > 3 else "")
+            n += self._queue("news", f"New on {query[:60]}", body, f"watch:{query}:{new[0].title[:40]}")
+        return n
+
+    def _rest_triggers(self, now: datetime) -> int:
+        """Rest days for someone who tends to overwork: a morning suggestion when training, sleep or late nights say
+        so, and an evening "call it a day" after a very long day at the screen."""
+        n, day = 0, now.date().isoformat()
+        focus = self.awareness.focus
+        grind = getattr(self.a, "grind", None)
+        if grind is not None and getattr(self.cfg, "rest_days", True) and 7 <= now.hour < 12:
+            advice = grind.rest_advice(day, late_nights=focus.late_nights(now.date()))
+            if advice:
+                n += self._queue("rest", "Rest day?", advice, f"rest:{day}")
+        hours = focus.hours_on(day)
+        limit = getattr(self.cfg, "overwork_hours", 10)
+        if limit and hours >= limit and now.hour >= 17:
+            n += self._queue("rest", "Call it a day?",
+                             f"You've been at the keyboard about {hours:.0f} hours today. Stop at a clean point, write "
+                             "down the next step so tomorrow starts fast, and get some sleep. Overworking tonight costs "
+                             "tomorrow's focus.", f"overwork:{day}")
         return n
 
     def _calendar_triggers(self, now: datetime, day: str) -> int:
@@ -319,13 +352,36 @@ class ProactiveEngine:
         order = ("CASE kind WHEN 'event' THEN 0 WHEN 'battery' THEN 0 WHEN 'reminder' THEN 1 WHEN 'deadline' THEN 1 "
                  "WHEN 'checkin' THEN 2 WHEN 'break' THEN 2 "
                  "WHEN 'goal' THEN 3 ELSE 4 END")
+        self._expire_ignored(now)
         with self.lock:
-            rows = self.db.execute(f"SELECT id, kind, title, body, created FROM notifications WHERE delivered IS NULL "
-                                   f"AND dismissed=0 AND kind!='timer' ORDER BY {order}, id LIMIT ?", (room,)).fetchall()
-            for r in rows:
+            cand = self.db.execute(f"SELECT id, kind, title, body, created FROM notifications WHERE delivered IS NULL "
+                                   f"AND dismissed=0 AND kind!='timer' ORDER BY {order}, id LIMIT ?", (room * 3,)).fetchall()
+            rows = []
+            for r in cand:
+                if len(rows) >= room:
+                    break
+                if not self.policy.allow(r[1], now):   # a kind you keep dismissing at this time of day: held back
+                    self.db.execute("UPDATE notifications SET dismissed=2 WHERE id=?", (r[0],))
+                    continue
+                rows.append(r)
                 self.db.execute("UPDATE notifications SET delivered=? WHERE id=?", (now.timestamp(), r[0]))
             self.db.commit()
         return urgent + [Notification(*r) for r in rows]
+
+    def _expire_ignored(self, now: datetime) -> None:
+        rows = self.db.execute("SELECT id, kind, delivered FROM notifications WHERE delivered IS NOT NULL AND dismissed=0 "
+                               "AND delivered<? AND delivered>?", (now.timestamp() - 12 * 3600, now.timestamp() - 3 * 86400)).fetchall()
+        for nid, kind, delivered in rows:
+            self.policy.ignored(nid, kind, delivered)
+
+    def acted(self, nid: int) -> None:
+        """You clicked a nudge or did what it suggested: more like this, at this time of day."""
+        r = self.db.execute("SELECT kind, delivered FROM notifications WHERE id=?", (nid,)).fetchone()
+        if r and r[1]:
+            self.policy.acted(nid, r[0], r[1])
+        with self.lock:
+            self.db.execute("UPDATE notifications SET dismissed=3 WHERE id=?", (nid,))
+            self.db.commit()
 
     def alarms_since(self, after: float) -> list[dict]:
         """Timers, alarms and timed reminders that went off after `after` (for the voice listener to say aloud).
@@ -340,6 +396,9 @@ class ProactiveEngine:
             return self.db.execute("SELECT COUNT(*) FROM notifications WHERE delivered IS NULL AND dismissed=0").fetchone()[0]
 
     def dismiss(self, nid: int) -> None:
+        r = self.db.execute("SELECT kind, delivered FROM notifications WHERE id=?", (nid,)).fetchone()
+        if r and r[1]:
+            self.policy.dismissed(nid, r[0], r[1])
         with self.lock:
             self.db.execute("UPDATE notifications SET dismissed=1 WHERE id=?", (nid,))
             self.db.commit()

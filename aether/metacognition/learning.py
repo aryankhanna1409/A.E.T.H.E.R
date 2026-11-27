@@ -200,6 +200,13 @@ class Learner:
             except Exception:
                 log.exception("memory decay failed during learning")
             out["merged"] = self._merge_duplicates()
+            for name, step in (("router", lambda: self.a.intent_model.train()),
+                               ("suggestions", lambda: self.a.suggestions.refresh())):
+                try:   # the learned router re-indexes; new rules and habits are mined and wait for your OK
+                    if hasattr(self.a, name if name != "router" else "intent_model"):
+                        out[name] = step()
+                except Exception:
+                    log.exception("night pass step %s failed", name)
             out.update(self.export())
             out["adapter"] = adapter_status(self.a.cfg)
             with self.lock:

@@ -315,7 +315,7 @@ class Tray:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             self.nova = subprocess.Popen(self.nova_command(), creationflags=flags)
 
-    # ---- always listening ("hey Jarvis", "Nova", "AETHER")
+    # ---- always listening ("AETHER" or "Nova")
     def voice_command(self) -> list[str]:
         cmd = self.nova_command()[:1] + ["-m", "aether.speech.voice_loop", "--server", "--port", str(self.port)]
         return cmd + (["--config", self.config] if self.config else [])
@@ -354,7 +354,7 @@ class Tray:
         else:
             save_settings({"listening": True})
             self.start_voice()
-            self.notify("Listening", 'Say "Nova", "Jarvis" or "AETHER" any time.')
+            self.notify("Listening", 'Say "AETHER" or "Nova" any time.')
 
     def toggle_nova(self) -> None:
         from .nova import save_settings

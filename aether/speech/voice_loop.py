@@ -2,11 +2,13 @@
 with barge-in (talk over AETHER to interrupt it).
 
 States: idle (waiting for the wake word) -> listening -> thinking -> speaking.
-After a reply it keeps listening for 8 seconds for a follow-up, so a
-conversation does not need the wake word every turn.
+After a reply that asks you something it keeps listening for a few seconds, so you can answer without the
+name; after anything else it goes back to waiting for its name (``[voice] follow_up``). That way it doesn't
+answer the TV or people talking in the room.
 Run:  python -m aether.speech.voice_loop            (loads its own copy of AETHER)
       python -m aether.speech.voice_loop --server   (uses the running server's model: what the tray starts)
-Wake it with "hey Jarvis", or just say "Nova", "Jarvis" or "AETHER" (a command can follow in the same breath).
+Wake it by saying "AETHER" or "Nova" (a command can follow in the same breath). The old "hey Jarvis" detector
+still runs quietly as a backup.
 """
 from __future__ import annotations
 
@@ -17,11 +19,12 @@ import time
 from ..core.config import VoiceConfig
 from ..core.logging import log
 from .chunker import SentenceChunker, clean
-from .profile import WAKE, SpeechProfile, terms_from_memories
+from .profile import WAKE, WAKE_START, SpeechProfile, terms_from_memories
 from .vad import Segmenter, rms
 
 FRAME_MS = 30
-FOLLOW_UP_S = 8
+FOLLOW_UP_S = 6
+WAKE_WINDOW_S = 8   # after the name, how long it waits for you to start talking
 LOCK_PORT = 8769   # one microphone listener at a time
 
 
@@ -164,7 +167,7 @@ class VoiceAssistant:
         if name_stt is None and cfg.wake_by_name and real:
             try:
                 from .stt import SpeechToText
-                name_stt = SpeechToText(cfg, profile, model_name=cfg.wake_stt_model)
+                name_stt = SpeechToText(cfg, None, model_name=cfg.wake_stt_model)   # unbiased: see confident()
             except Exception as e:  # pragma: no cover - the wake word still works
                 log.warning("say-the-name wake unavailable: %s", e)
         self.name_stt = name_stt
@@ -187,6 +190,7 @@ class VoiceAssistant:
         self.on_state = None  # called with the new state (idle/listening/thinking/speaking), e.g. to tell Nova
         self.state = "idle"
         self.follow_up_until = 0.0
+        self.follow_ups = 0
         self.running = True
         self.seg = Segmenter(cfg.vad_energy, cfg.silence_ms, FRAME_MS)
         self.barge_frames = 0
@@ -229,16 +233,21 @@ class VoiceAssistant:
         A command said in the same breath is answered at once."""
         if self.name_stt is None:
             return False
-        heard = self.name_stt.transcribe(audio).strip()
-        m = WAKE.search(heard)
-        if not m or m.start() > 12:      # the name has to come first, not in passing ("I told Nova ...")
+        heard = (self.name_stt.confident(audio) if hasattr(self.name_stt, "confident")
+                 else self.name_stt.transcribe(audio)).strip()
+        if self.profile is not None:
+            heard = self.profile.apply(heard)
+        m = WAKE_START.search(heard)
+        if not m:      # the name has to open the utterance, not come in passing ("I told Nova ...")
             return False
+        self.follow_ups = 0
         self.state = "listening"
+        self.follow_up_until = time.time() + WAKE_WINDOW_S
         self.seg.reset()
         rest = heard[m.end():].strip(" ,.!?")
         if len(rest.split()) >= 2:       # a command in the same breath: transcribe it properly and answer
             full = self.stt.transcribe(audio)
-            m2 = WAKE.search(full)
+            m2 = WAKE_START.search(full) or WAKE.search(full)
             rest = (full[m2.end():] if m2 else rest).strip(" ,.!?") or rest
             self.handle_text(rest)
         return True
@@ -267,6 +276,7 @@ class VoiceAssistant:
                 replaced[0] = True  # the verifier changed what was said: stop and say the corrected answer
 
         reply = self.aether.handle(text, on_event=on_event, spoken=True)
+        self._last_reply = reply.text or ""
         self._drain()   # audio captured while it was thinking is stale (and may hold its own first words)
         if replaced[0] or not started[0]:
             if started[0]:
@@ -296,8 +306,21 @@ class VoiceAssistant:
             if not self.tts.say(sentence):
                 break  # interrupted (barge-in)
         if gen == self._gen and self.state == "speaking":
-            self.state = "listening"
-            self.follow_up_until = time.time() + FOLLOW_UP_S
+            self._after_reply(getattr(self, "_last_reply", ""))
+
+    def _after_reply(self, reply: str) -> None:
+        """Listen for an answer only when one is expected; otherwise wait for the name again."""
+        mode = getattr(self.cfg, "follow_up", "question")
+        asked = reply.rstrip().rstrip('"\')').endswith("?")
+        self.follow_ups += 1
+        if mode == "off" or (mode == "question" and not asked) or self.follow_ups > getattr(self.cfg, "follow_up_turns", 3):
+            self.state, self.follow_up_until = "idle", 0.0
+            self.seg.reset()
+            self.idle_seg.reset()
+            return
+        self.state = "listening"
+        self.seg.reset()
+        self.follow_up_until = time.time() + getattr(self.cfg, "follow_up_s", FOLLOW_UP_S)
 
     def step(self, frame) -> None:
         """Process one 30 ms float32 frame (exposed for testing)."""
@@ -305,6 +328,8 @@ class VoiceAssistant:
         if self.state == "idle":
             if self.wake.heard((frame * 32767).astype(np.int16)):
                 self.state = "listening"
+                self.follow_ups = 0
+                self.follow_up_until = time.time() + WAKE_WINDOW_S   # say the request within a few seconds
                 self.seg.reset()
                 self.idle_seg.reset()
                 return
@@ -372,7 +397,7 @@ class VoiceAssistant:
         if proactive is not None and self.ring not in proactive.listeners:
             proactive.listeners.append(self.ring)
         block = int(self.cfg.sample_rate * FRAME_MS / 1000)
-        print('Voice ready. Say "hey Jarvis", or just "Nova", "Jarvis" or "AETHER" (Ctrl+C to quit).')
+        print('Voice ready. Say "AETHER" or "Nova" (Ctrl+C to quit).')
         with sd.InputStream(samplerate=self.cfg.sample_rate, channels=1, dtype="float32", blocksize=block,
                             callback=self._on_audio):
             while self.running:

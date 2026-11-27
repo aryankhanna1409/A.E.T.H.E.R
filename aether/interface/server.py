@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from ..app import build
 from ..core.logging import ensure_streams, setup_logging
 from ..core.version import code_version
+from ..health import grind_api
 from ..neurosymbolic.rules import RuleEngine
 
 WEB = Path(__file__).parent / "web"
@@ -146,6 +147,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-cache"})
 
     app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
+    grind_api.register(app, aether)   # Grind 75 (75 Hard, food, body) at /grind/
 
     # What AETHER is doing right now, for Nova (the desktop pet) and other small displays.
     presence = {"state": "idle", "until": 0.0}
@@ -315,6 +317,30 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 nodes[n]["degree"] += 1
             links.append({"source": s_, "target": o_, "label": p_, "kind": kind, "id": tid})
         return {"nodes": list(nodes.values()), "links": links}
+
+    @app.get("/api/suggestions")
+    def get_suggestions():
+        return {"items": aether.suggestions.list(), "router": aether.intent_model.info()}
+
+    @app.post("/api/suggestions/refresh")
+    def refresh_suggestions():
+        return aether.suggestions.refresh()
+
+    @app.post("/api/suggestions/{sid}")
+    def decide_suggestion(sid: int, body: dict):
+        return {"message": aether.suggestions.decide(sid, bool(body.get("accept")))}
+
+    @app.get("/api/plans")
+    def get_plans():
+        return {"text": aether.plans.text(), "today": aether.plans.today()}
+
+    @app.post("/api/plans")
+    def save_plans(body: dict):
+        text = str(body.get("text", ""))
+        if len(text) > 200_000:
+            raise HTTPException(413, "plan too long")
+        aether.plans.save(text)
+        return {"today": aether.plans.today()}
 
     @app.get("/api/routines")
     def routines():
@@ -773,6 +799,15 @@ def create_app(config_path: str | None = None) -> FastAPI:
     def dismiss(nid: int):
         aether.proactive.dismiss(nid)
         return {"ok": True}
+
+    @app.post("/api/notifications/{nid}/acted")
+    def acted(nid: int):
+        aether.proactive.acted(nid)
+        return {"ok": True}
+
+    @app.get("/api/nudges/learned")
+    def nudges_learned():
+        return aether.proactive.policy.table()
 
 
     @app.post("/api/image")

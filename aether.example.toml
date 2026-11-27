@@ -1,7 +1,7 @@
 # Copy to aether.toml (next to where you run AETHER) or to %LOCALAPPDATA%\AETHER\aether.toml
 user_name = "Aryan"
-persona = "jarvis"               # jarvis (understated chief of staff) | neutral
-address_as = ""                  # e.g. "sir" if you want the full Jarvis experience
+persona = "aether"               # aether (understated chief of staff) | neutral
+address_as = ""                  # e.g. "sir" if you like being called that
 max_plan_steps = 8
 
 [llm]
@@ -14,7 +14,9 @@ threads = 6                      # the 5600H's 6 physical cores
 batch_size = 256
 flash_attn = true
 draft_lookup_tokens = 0          # speculative decoding by prompt lookup; try 10 after `scripts\bench.py --compare-draft`
-# Faster alternative that fits entirely in 4 GB VRAM (lower quality):
+# Faster brain that fits entirely in 4 GB VRAM: about 3x quicker replies, a bit less careful on long reasoning.
+# Works with the pinned llama-cpp-python 0.3.4. (Qwen3-class 4B models need a newer llama.cpp than that wheel,
+# so they're not the default until an official CUDA wheel for Windows ships.)
 #   model_path = "C:/AETHER/models/qwen2.5-3b-instruct-q4_k_m.gguf"
 #   gpu_layers = -1
 #   context_tokens = 8192
@@ -60,7 +62,7 @@ stt_prompt = ""                   # extra context for Whisper, e.g. "Robotics st
 tts_voice_path = "C:/AETHER/models/voices/en/en_GB/alan/medium/en_GB-alan-medium.onnx"   # from get_model.py voice
 wake_word = "hey_jarvis"
 wake_by_name = true              # also wake on "hey Nova" (checked with a tiny Whisper model)
-wake_verifier_path = ""          # set by scripts\learn_my_voice.py: tunes "hey Jarvis" to your voice
+wake_verifier_path = ""          # set by scripts\learn_my_voice.py: tunes the backup wake model to your voice
 vad_energy = 0.012               # raise if background noise triggers it
 barge_in = true
 
@@ -96,7 +98,7 @@ news_region = "IN"
 briefing_headlines = 3
 
 [briefing]
-on_first_greeting = true         # the first "hey jarvis" / "good morning" of the morning gives the briefing
+on_first_greeting = true         # the first "AETHER, good morning" of the morning gives the briefing
 window_start = "04:30"
 window_end = "12:00"
 

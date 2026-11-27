@@ -73,7 +73,9 @@ def compose(a, now: datetime | None = None, online: bool | None = None) -> Brief
     if online and getattr(a, "online", None) is not None:
         with ThreadPoolExecutor(2) as pool:  # both lookups at once, each with its own timeout
             fw = pool.submit(a.online.weather) if a.cfg.online.location else None
-            fn = pool.submit(a.online.headlines, "", a.cfg.online.briefing_headlines + 4) if a.cfg.online.news_feeds else None
+            digest = getattr(a, "digest", None)
+            fn = (pool.submit(digest.for_briefing, a.cfg.online.briefing_headlines + 2) if digest is not None else
+                  pool.submit(a.online.headlines, "", a.cfg.online.briefing_headlines + 4) if a.cfg.online.news_feeds else None)
             for fut, label in ((fw, "weather"), (fn, "news")):
                 if fut is None:
                     continue
@@ -126,6 +128,38 @@ def compose(a, now: datetime | None = None, online: bool | None = None) -> Brief
         s_lines.append(f"{len(due)} thing{'s' if len(due) != 1 else ''} due" + (f", {overdue} overdue" if overdue else "")
                        + f": {_list([r.text for r in due[:3]])}.")
 
+    plans = getattr(a, "plans", None)
+    try:
+        t = plans.today(now.date()) if plans else {}
+    except Exception:
+        t = {}
+    if t:
+        sections["plan"] = t
+        left = f", {t['days_left']} days to go" if t["days_left"] is not None else ""
+        w_lines.append(f"**Plan · {t['horizon']}{left}:**" + (f" {t['goal']}." if t["goal"] else "")
+                       + ("\n- Every day: " + "; ".join(t["daily"]) if t["daily"] else "")
+                       + ("\n- " + (t["block"] or "Next up") + ": " + "; ".join(t["focus"][:5]) if t["focus"] else ""))
+        s_lines.append(f"{t['horizon']}{left}." + (f" Today: {_list(t['daily'][:3])}." if t["daily"] else "")
+                       + (f" This week: {_list(t['focus'][:2])}." if t["focus"] else ""))
+
+    grind = getattr(a, "grind", None)
+    if grind is not None and grind.state.get("days"):
+        try:
+            c = grind.challenge(now.date().isoformat())
+            yest = (now.date() - timedelta(days=1)).isoformat()
+            ys = grind.day_score(yest)
+            streak = grind.streak(now.date().isoformat())
+            rest = grind.rest_advice(now.date().isoformat())
+            line = (f"Day {c['dayInBlock']} of 75" if c["started"] else f"Starts in {c['daysUntil']} days") + \
+                (f", {streak}-day streak" if streak else "") + f". Yesterday {ys['done']}/{ys['total']} habits."
+            T = grind.state["targets"]
+            line += f" Targets: {T['kcal']} kcal, {T['protein']} g protein."
+            sections["grind"] = {"line": line, "rest": rest}
+            w_lines.append("**75 Hard:** " + line + (f"\n- {rest}" if rest else ""))
+            s_lines.append(line + (" " + rest.split(":")[0] + " today, I'd say." if rest else ""))
+        except Exception as e:
+            log.warning("briefing grind section failed: %s", e)
+
     try:
         mail = a.mail.all(now - timedelta(hours=18))
     except Exception:
@@ -154,10 +188,12 @@ def compose(a, now: datetime | None = None, online: bool | None = None) -> Brief
 
     if headlines:
         safe = [h for h in headlines if _safe(h.title)][:a.cfg.online.briefing_headlines]
-        sections["news"] = [{"title": h.title, "source": h.source, "link": h.link} for h in safe]
+        src = lambda h: ", ".join(h.sources[:2]) if hasattr(h, "sources") else h.source  # noqa: E731 - digest story or plain headline
+        why = lambda h: f" · _for: {h.why}_" if getattr(h, "why", "") else ""  # noqa: E731
+        sections["news"] = [{"title": h.title, "source": src(h), "link": h.link} for h in safe]
         if safe:
-            w_lines.append("**Headlines:**\n" + "\n".join(f"- [{_safe(h.title)}]({h.link}) · {h.source}" if h.link.startswith("http")
-                                                          else f"- {_safe(h.title)} · {h.source}" for h in safe))
+            w_lines.append("**While you were away:**\n" + "\n".join(f"- [{_safe(h.title)}]({h.link}) · {src(h)}{why(h)}" if h.link.startswith("http")
+                                                                   else f"- {_safe(h.title)} · {src(h)}{why(h)}" for h in safe))
             s_lines.append("In the news: " + " ".join(f"{_safe(h.title).rstrip('.')}." for h in safe[:3]))
 
     if len(s_lines) == 1:
