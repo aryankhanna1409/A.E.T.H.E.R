@@ -76,6 +76,8 @@ from ..core.bus import EventBus
 from ..memory.nets import MemoryReranker
 from ..memory.nets import WorkingMemory as LiveContext
 from ..proactive.world import WorldModel
+from ..memory.atlas import Atlas, handle as atlas_handle
+from ..metacognition.rsi import SelfImprover, handle as rsi_handle
 from ..proactive.world import handle as world_handle
 from .perception import perceive
 from ..tools.todos import todo_tools
@@ -234,6 +236,8 @@ class Aether:
         self.router.learned = self.mem_ranker
         self.working = LiveContext(self)
         self.world = WorldModel(self)
+        self.atlas = Atlas(self)
+        self.rsi = SelfImprover(self)
         self.tools.register(Tool("research", "deep research: web + your documents, known vs new, cited brief",
                                  {"question": "the research question"}, "web.search", self._research))
         self.turns_since_summary: dict[int, int] = {}
@@ -536,7 +540,8 @@ class Aether:
         sp = getattr(self, "_spoken", False)
         grind_reply = grind_handle(self.grind, text) or plans_handle(self.plans, text, sp) or \
             digest_handle(self.digest, text, sp) or dayplan.handle(self, text, sp) or review.handle(self, text, sp, now) or \
-            recall_by_date(self.store, text, now, sp) or world_handle(self, text, sp, now)
+            recall_by_date(self.store, text, now, sp) or world_handle(self, text, sp, now) or \
+            atlas_handle(self, text, sp) or rsi_handle(self, text)
         if grind_reply is not None:   # 75 Hard / food / body logging in plain words: instant, no model
             state.intent, state.route, state.confidence, state.current_goal = "quick", ["tools"], 1.0, "grind 75 / plans"
             state.tool_log.append("grind75/plans -> allow, ok=True")

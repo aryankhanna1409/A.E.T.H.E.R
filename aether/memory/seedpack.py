@@ -7,7 +7,8 @@ is one, and run through the same prompt-injection check as any import. Applying 
 
     {
       "label": "my history",
-      "memories":     [{"text": "...", "layer": "semantic|episodic|procedural", "date": "2026-10-25", "kind": "fact"}],
+      "memories":     [{"text": "...", "layer": "semantic|episodic|procedural", "date": "2026-10-25", "kind": "fact",
+                        "category": "health"}],   # category: a memory-map area (see aether/memory/atlas.py)
       "facts":        [["Sam", "studies_at", "Leeds University"], {"s": "...", "p": "...", "o": "...", "date": "2024-09-01"}],
       "rules":        ["works_on(?u, ?p) & uses(?p, ?t) -> experienced_with(?u, ?t)"],
       "preferences":  ["Answer directly, with numbers"],
@@ -16,7 +17,8 @@ is one, and run through the same prompt-injection check as any import. Applying 
                         "tasks": [{"description": "...", "status": "done|pending", "agent": "planner",
                                    "after": [0], "done_when": "..."}]}],
       "eval_cases":   [{"query": "where do I study", "expect": "Sam studies in Leeds."}],
-      "reminders":    [{"text": "...", "when": "2027-01-04"}]
+      "reminders":    [{"text": "...", "when": "2027-01-04"}],
+      "plans":        "# Plans\n## Now · until 2027-01-18\n..."     # your plans.md, used only if you have none yet
     }
 """
 from __future__ import annotations
@@ -61,8 +63,8 @@ def _safe(text: str) -> bool:
 
 
 def summary(pack: dict) -> dict[str, int]:
-    keys = ("memories", "facts", "rules", "preferences", "observations", "goals", "eval_cases", "reminders")
-    return {k: len(pack.get(k) or []) for k in keys if pack.get(k)}
+    keys = ("memories", "facts", "rules", "preferences", "observations", "goals", "eval_cases", "reminders", "plans")
+    return {k: (1 if k == "plans" else len(pack.get(k) or [])) for k in keys if pack.get(k)}
 
 
 def apply(aether, pack: dict, label: str | None = None) -> dict[str, int]:
@@ -82,6 +84,8 @@ def apply(aether, pack: dict, label: str | None = None) -> dict[str, int]:
         meta = {"seeded": True, "imported_from": label, "kind": m.get("kind", "fact")}
         if m.get("date"):
             meta["date"] = str(m["date"])
+        if m.get("category"):
+            meta["category"] = str(m["category"])[:40]
         mid = store.add(text, layer, "user_approved", confidence=float(m.get("confidence", 0.9)), meta=meta)
         t = when(m.get("date"))
         if t:
@@ -180,6 +184,14 @@ def apply(aether, pack: dict, label: str | None = None) -> dict[str, int]:
         if _safe(text) and text not in open_reminders and r.get("when"):
             aether.reminders.add(text, str(r["when"]))
             out["reminders"] += 1
+
+    plan = pack.get("plans")
+    if plan:
+        out["plans"] = 0
+    plans = getattr(aether, "plans", None)
+    if isinstance(plan, str) and plan.strip() and plans is not None and not plans.text().strip() and _safe(plan[:2000]):
+        plans.save(plan)          # never overwrites plans you already keep in AETHER
+        out["plans"] = 1
 
     added = sum(v for k, v in out.items() if k != "skipped")
     aether.audit.record("memory.seed_pack", label, True, f"you imported a seed pack: {added} items added")

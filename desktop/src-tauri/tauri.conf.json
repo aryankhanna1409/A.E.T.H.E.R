@@ -7,7 +7,7 @@
   "app": {
     "windows": [
       { "title": "AETHER", "width": 1280, "height": 820, "minWidth": 900, "minHeight": 600,
-        "url": "index.html", "theme": "Dark", "backgroundColor": "#070b10" }
+        "url": "index.html", "theme": "Dark", "backgroundColor": "#07020c" }
     ],
     "security": { "csp": null }
   },

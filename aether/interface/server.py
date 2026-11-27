@@ -16,12 +16,12 @@ import webbrowser
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..app import build
-from ..core.logging import ensure_streams, setup_logging
+from ..core.logging import ensure_streams, log, setup_logging
 from ..core.version import MARK, code_version
 from ..health import grind_api
 from ..neurosymbolic.rules import RuleEngine
@@ -161,9 +161,64 @@ def create_app(config_path: str | None = None) -> FastAPI:
         from . import relay
         return relay.info(aether)
 
+    @app.get("/api/atlas")
+    def atlas(focus: str = "me", at: float | None = None):
+        return aether.atlas.build(at, focus)
+
+    @app.get("/api/atlas/node")
+    def atlas_node(id: str):
+        try:
+            return aether.atlas.node(id)
+        except KeyError:
+            raise HTTPException(404, "no such node")
+
+    @app.post("/api/atlas/act")
+    def atlas_act(body: dict):
+        try:
+            out = aether.atlas.act(str(body.get("op", "")), body)
+        except (ValueError, KeyError, TypeError) as e:
+            raise HTTPException(400, f"bad request: {e}")
+        aether.audit.record("memory.map", str(body.get("op")), True, out.get("message", ""))
+        return out
+
+    @app.get("/api/rsi")
+    def rsi_info():
+        return {**aether.rsi.info(), "running": rsi_state["running"]}
+
+    rsi_state = {"running": False}
+
+    @app.post("/api/rsi/run")
+    def rsi_run():
+        if rsi_state["running"]:
+            return {"started": False}
+
+        def go():
+            rsi_state["running"] = True
+            try:
+                aether.rsi.cycle("you asked")
+            except Exception:
+                log.exception("self-improvement cycle failed")
+            finally:
+                rsi_state["running"] = False
+        threading.Thread(target=go, daemon=True, name="aether-rsi").start()
+        return {"started": True}
+
+    def page() -> HTMLResponse:   # stamp asset URLs with the code version, so an update is never hidden by a cache
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        v = code_version()[:12]
+        html = html.replace('/static/app.css"', f'/static/app.css?v={v}"').replace('/static/app.js"', f'/static/app.js?v={v}"')
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
     @app.get("/")
     def index():
-        return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-cache"})
+        return page()
+
+    @app.middleware("http")
+    async def fresh_static(request, call_next):
+        resp = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            resp.headers["Cache-Control"] = "no-cache"     # always revalidate (a cheap 304 when nothing changed)
+        return resp
 
     app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
     grind_api.register(app, aether)   # Grind 75 (75 Hard, food, body) at /grind/
