@@ -10,8 +10,8 @@ from functools import lru_cache
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[1]   # the aether/ package folder
-MARK = "Mark XXIX"   # the release name (version 29)
-VERSION = "29.0.0"
+MARK = "Mark XXX"   # the release name (version 30)
+VERSION = "30.0.0"
 
 
 @lru_cache(maxsize=1)

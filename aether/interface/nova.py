@@ -31,7 +31,7 @@ import webbrowser
 from pathlib import Path
 
 NAME = "Nova"
-BLUE = (54, 214, 255)      # AETHER arc cyan
+BLUE = (255, 47, 179)      # AETHER Vision magenta (Mark XXX)
 AMBER = (255, 176, 32)     # orange-yellow
 SLEEP = (92, 110, 132)     # server not reachable
 SIZE = 72                  # window size in px, small like a desktop pet; the orb is about half of it

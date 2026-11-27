@@ -4,6 +4,7 @@ import { GraphView } from "./graph.js";
 import { Inspector } from "./inspector.js";
 import { renderDag } from "./dag.js";
 import { HUD } from "./hud.js";
+import { Atlas, AREA_COLORS } from "./atlas.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -50,16 +51,25 @@ function toast(title, body = "", kind = "", ms = 6000, nid = null) {
 const S = {
   view: "chat", status: null, busy: false, session: null,
   showMind: store.get("showMind", true), showConvos: store.get("showConvos", true),
-  autoSpeak: store.get("autoSpeak", false), theme: store.get("theme", "dark"),
+  autoSpeak: store.get("autoSpeak", false), theme: store.get("theme", "dark"), mode: store.get("mode", "user"),
   lastState: null, pendingId: null, graph: null,
 };
 document.documentElement.dataset.theme = S.theme;
+document.documentElement.dataset.mode = S.mode;
+// User mode keeps the app clean; Admin (developer) mode shows traces, the Lab, Self, Activity and raw settings.
+function setMode(m) {
+  S.mode = m === "admin" ? "admin" : "user"; store.set("mode", S.mode); document.documentElement.dataset.mode = S.mode;
+  const c = document.getElementById("mode-chip"); if (c) c.textContent = S.mode.toUpperCase();
+  if (Chat.root) Chat.applyLayout();
+}
+const setTheme = t => { S.theme = t; store.set("theme", t); document.documentElement.dataset.theme = t; };
 
-const VIEWS = { chat: "Chat", today: "Today", grind: "Grind 75", memory: "Memory", knowledge: "Knowledge", goals: "Mission control", lab: "Lab", self: "Self", activity: "Activity", settings: "Settings" };
+const VIEWS = { chat: "Chat", today: "Today", grind: "Grind 75", memory: "Memory", map: "Map", knowledge: "Knowledge", goals: "Mission control", lab: "Lab", self: "Self", activity: "Activity", settings: "Settings" };
 
 function go(view) {
   if (!VIEWS[view]) return;
   if (S.graph && view !== "knowledge") { S.graph.destroy(); S.graph = null; }
+  if (S.atlas && view !== "map") { S.atlas.destroy(); S.atlas = null; }
   clearInterval(S.poll); clearInterval(S.play);
   S.view = view;
   $$("#rail button").forEach(b => b.classList.toggle("active", b.dataset.view === view));
@@ -180,7 +190,7 @@ const Chat = {
       <section class="stage">
         <div class="stage-bar">
           <button class="icon-btn" id="toggle-convos" title="Conversations">${icon("chat")}</button>
-          <button class="icon-btn" id="toggle-mind" title="Show how AETHER is thinking">${icon("panel")}</button>
+          <button class="icon-btn" id="toggle-mind" data-admin title="Show how AETHER is thinking">${icon("panel")}</button>
         </div>
         <div id="log"></div>
         <div class="composer-wrap">
@@ -224,7 +234,7 @@ const Chat = {
     this.hero();
   },
   applyLayout() {
-    this.root.classList.toggle("no-mind", !S.showMind); this.root.classList.toggle("no-convos", !S.showConvos);
+    this.root.classList.toggle("no-mind", !S.showMind || S.mode !== "admin"); this.root.classList.toggle("no-convos", !S.showConvos);
     $("#toggle-mind", this.root).classList.toggle("on", S.showMind); $("#toggle-convos", this.root).classList.toggle("on", S.showConvos);
   },
   autosize() { this.t.style.height = "auto"; this.t.style.height = Math.min(220, this.t.scrollHeight) + "px"; },
@@ -295,7 +305,7 @@ const Chat = {
   addAI(text = "", { final = false, t } = {}) {
     const el = h(`<div class="msg ai"><div class="who"><span class="mini-orb"></span>AETHER</div><div class="tools"></div><div class="body md"></div><div class="notices"></div>
       <div class="foot"><button class="icon-btn" data-a="copy" title="Copy">${icon("copy")}</button><button class="icon-btn" data-a="speak" title="Read aloud">${icon("speak")}</button>
-      <button class="icon-btn" data-a="inspect" title="Inspect this turn: timeline, retrieval, proofs, verification" hidden>${icon("scan")}</button>
+      <button class="icon-btn" data-a="inspect" data-admin title="Inspect this turn: timeline, retrieval, proofs, verification" hidden>${icon("scan")}</button>
       <button class="icon-btn" data-a="up" title="Good answer">${icon("up")}</button><button class="icon-btn" data-a="down" title="Bad answer">${icon("down")}</button><span class="meta"></span></div></div>`);
     el._text = text;
     $(".body", el).innerHTML = text ? markdown(text) : `<div class="thinking-line"><span class="dots"><span></span><span></span><span></span></span><span class="label">Thinking</span></div>`;
@@ -875,6 +885,147 @@ RENDER.knowledge = async (p) => {
   };
 };
 
+// ------------------------------------------------------------------ memory map (Mark XXX)
+RENDER.map = async (p) => {
+  p.className = ""; p.style.height = "100%";
+  p.innerHTML = `<div class="atlas">
+    <div class="atlas-stage"><canvas id="atc"></canvas>
+      <div class="atlas-hud">
+        <div class="atlas-title"><b>MEMORY MAP</b><span id="ats">building…</span></div>
+        <div class="atlas-search"><svg><use href="#i-search"/></svg><input id="atq" placeholder="Find a person, project, memory…" autocomplete="off"><div class="atlas-results" id="atr" hidden></div></div>
+        <div class="row atlas-tools">
+          <button class="kg-tool on" id="at-areas" title="Colour by area of your life">Areas</button><button class="kg-tool" id="at-comm" title="Colour by detected community">Communities</button>
+          <button class="kg-tool" id="at-fit" title="Fit everything (double-click empty space)">Fit</button>
+          <button class="kg-tool" id="at-grow" title="Replay how your map grew over time">▶ Grow</button>
+          <button class="kg-tool" id="at-all" data-admin title="Show nodes that aren't connected to you (demo and test data)">Everything</button></div>
+      </div>
+      <div class="atlas-legend" id="atl"></div>
+      <div class="atlas-filters" id="atf"></div>
+      <div class="atlas-tip" id="att" hidden></div>
+      <div class="atlas-time" id="attime" hidden><input type="range" id="atslider" min="0" max="1000" value="1000"><span id="atdate"></span></div>
+    </div>
+    <aside class="atlas-side" id="atside"></aside></div>`;
+  const side = $("#atside", p), when = t => t ? new Date(t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
+  let focus = "me", M = null, tab = "insights", selected = null;
+  const A = S.atlas = new Atlas($("#atc", p), {
+    onSelect: n => { selected = n; if (n) { tab = "node"; showNode(n.id); } else { A.isolate(null); drawSide(); } },
+    onHover: (n, e) => { const t = $("#att", p); if (!n) { t.hidden = true; return; } t.hidden = false; t.style.left = (e.offsetX + 14) + "px"; t.style.top = (e.offsetY + 10) + "px";
+      t.innerHTML = `<b>${esc(n.label)}</b><span>${esc(typeLabel(n))}${n.deg ? ` · ${n.deg} links` : ""}</span>`; },
+  });
+  const typeLabel = n => n.id === "e:user" ? "you" : n.type === "category" ? "area" : n.type === "entity" ? n.kind : n.type === "memory" ? `${n.kind} memory` : n.type;
+  const load = async () => {
+    M = await api(`/api/atlas?focus=${focus}`);
+    A.setData(M); drawChrome(); drawSide();
+  };
+  const drawChrome = () => {
+    const s = M.stats;
+    $("#ats", p).textContent = `${s.nodes} nodes · ${s.links} links · ${s.communities} communities · modularity ${s.modularity}` + (s.hidden ? ` · ${s.hidden} unrelated hidden` : "");
+    $("#atl", p).innerHTML = (s.areas || []).sort((a, b) => b.size - a.size).map(a => `<button data-area="${a.key}" style="--c:${AREA_COLORS[a.key] || "#ff2fb3"}"><i></i>${esc(a.label)}<em>${a.size}</em></button>`).join("");
+    $$("#atl [data-area]", p).forEach(b => b.onclick = () => {
+      const on = b.classList.toggle("on"); $$("#atl [data-area]", p).forEach(x => x !== b && x.classList.remove("on"));
+      if (!on) { A.isolate(null); return; }
+      const ids = A.nodes.filter(n => n.area === b.dataset.area || n.id === "e:user").map(n => n.id); A.isolate(ids); A.focus("c:" + b.dataset.area, .9);
+    });
+    const types = [["entity", "Entities"], ["memory", "Memories"], ["document", "Documents"], ["goal", "Goals"]];
+    $("#atf", p).innerHTML = types.map(([t, l]) => `<label><input type="checkbox" data-t="${t}" ${A.hiddenTypes.has(t) ? "" : "checked"}> ${l}</label>`).join("")
+      + `<label><input type="checkbox" id="at-inf" ${A.showInferred ? "checked" : ""}> Inferred links</label>`;
+    $$("#atf [data-t]", p).forEach(c => c.onchange = () => { c.checked ? A.hiddenTypes.delete(c.dataset.t) : A.hiddenTypes.add(c.dataset.t); });
+    $("#at-inf", p).onchange = e => A.showInferred = e.target.checked;
+  };
+  const card = (x, extra = "") => `<a href="#" class="atlas-ref" data-go="${esc(x.id)}" style="--c:${AREA_COLORS[(A.byId.get(x.id) || {}).area] || "var(--accent)"}">${esc(x.label)}</a>${extra}`;
+  const drawSide = () => {
+    if (!M) return;
+    const I = M.insights;
+    const tabs = `<div class="tabs" id="att-tabs">${[["insights", "Insights"], ["areas", "Areas"], ["fix", "Fix"], ["node", "Node"]].map(([k, l]) => `<button data-tab="${k}" class="${tab === k ? "active" : ""}">${l}${k === "fix" && fixCount() ? ` <span class="chip warn">${fixCount()}</span>` : ""}</button>`).join("")}</div>`;
+    let body = "";
+    if (tab === "insights") body = `
+      <h4 class="side-h">God nodes <span class="faint">· what holds your world together</span></h4>
+      ${I.god_nodes.map((g, i) => `<div class="item"><span class="rank">${i + 1}</span><div class="grow">${card(g)}<div class="meta">${esc(g.why)}</div></div></div>`).join("") || `<div class="muted">Not enough links yet.</div>`}
+      <h4 class="side-h">Bridges <span class="faint">· connect several areas</span></h4>
+      ${I.bridges.map(g => `<div class="item"><div class="grow">${card(g)}<div class="meta">spans ${g.areas} areas · participation ${g.participation}</div></div></div>`).join("") || `<div class="muted">None yet.</div>`}
+      <h4 class="side-h">Surprising connections</h4>
+      ${I.surprising.map(x => `<div class="item"><div class="grow">${card(x.s)} <span class="faint">↔</span> ${card(x.t)}<div class="meta">${esc(x.why)}${x.label ? ` · ${esc(x.label)}` : ""}</div></div></div>`).join("") || `<div class="muted">Nothing unexpected yet.</div>`}
+      <h4 class="side-h">Links I'd suggest</h4>
+      ${I.suggestions.map((x, i) => `<div class="item"><div class="grow">${card(x.s)} <span class="faint">↔</span> ${card(x.t)}<div class="meta">${esc(x.why)}</div></div>
+        <div class="row"><button class="primary sm" data-link="${i}">Link</button><button class="ghost sm" data-dis="${i}">✕</button></div></div>`).join("") || `<div class="muted">No missing links spotted.</div>`}`;
+    else if (tab === "areas") body = `<p class="muted" style="margin:4px 0 10px">Communities found by modularity (Louvain): groups that link to each other more than to the rest. Click one to isolate it.</p>
+      ${M.communities.map(c => `<div class="item clickable" data-com="${c.id}"><span class="dot" style="background:${AREA_COLORS[c.area] || "#ff2fb3"}"></span><div class="grow"><b style="font-weight:600">${esc(c.label)}</b>
+        <div class="meta">${c.size} nodes · ${c.entities} entities · ${c.memories} memories${c.documents ? ` · ${c.documents} documents` : ""} · cohesion ${c.cohesion}</div></div></div>`).join("")}`;
+    else if (tab === "fix") body = `<p class="muted" style="margin:4px 0 10px">Tidy what AETHER knows. Every change is logged in Activity, and retired facts stay in the belief history.</p>
+      <h4 class="side-h">Near-duplicate memories</h4>
+      ${I.duplicates.map((d, i) => `<div class="item"><div class="grow">${card(d.keep)}<div class="meta">≈ ${esc(d.drop.label)} · ${Math.round(d.similarity * 100)}% the same</div></div><button class="ghost sm" data-merge="${i}">Merge</button></div>`).join("") || `<div class="muted">No duplicates.</div>`}
+      <h4 class="side-h">Weak inferred facts</h4>
+      ${I.weak_facts.map(f => `<div class="item"><div class="grow">${esc(f.text)}<div class="meta">${esc(f.source)} · ${Math.round(f.confidence * 100)}% sure</div></div><button class="ghost sm" data-retract="${f.fid}">Retract</button></div>`).join("") || `<div class="muted">None.</div>`}
+      <h4 class="side-h">Memories nothing links to <span class="faint">· ${I.orphan_count}</span></h4>
+      ${I.orphans.map(o => `<div class="item"><div class="grow">${card(o)}</div></div>`).join("") || `<div class="muted">None: everything is connected.</div>`}
+      ${I.gaps.length ? `<h4 class="side-h">Topics with no facts yet</h4>${I.gaps.map(g => `<div class="item"><div class="grow">${esc(g.label)}<div class="meta">${g.memories} memories, no facts: tell me something concrete about it</div></div></div>`).join("")}` : ""}
+      <div data-admin style="margin-top:18px"><h4 class="side-h">Admin</h4><div class="item"><div class="grow">Retire facts that have nothing to do with you<div class="meta">Demo worlds, test data and stray islands. Reversible from the belief history.</div></div><button class="ghost sm" id="prune">Clean up</button></div></div>`;
+    else body = selected ? `<div id="atnode"><div class="muted">Loading…</div></div>` : `<div class="muted" style="margin-top:12px">Click any node on the map to see its memories, facts, proofs and timeline.</div>`;
+    side.innerHTML = tabs + `<div class="atlas-side-body">${body}</div>`;
+    $$("[data-tab]", side).forEach(b => b.onclick = () => { tab = b.dataset.tab; drawSide(); if (tab === "node" && selected) showNode(selected.id); });
+    wire();
+  };
+  const fixCount = () => M ? M.insights.duplicates.length + M.insights.weak_facts.length : 0;
+  const act = async (body) => { try { const r = await api("/api/atlas/act", { method: "POST", body }); toast(r.message); await load(); } catch (e) { toast("Didn't work", e.message, "error"); } };
+  const wire = () => {
+    $$("[data-go]", side).forEach(a => a.onclick = e => { e.preventDefault(); A.focus(a.dataset.go, 1.6); });
+    $$("[data-com]", side).forEach(d => d.onclick = () => { const ids = A.nodes.filter(n => n.community === +d.dataset.com).map(n => n.id); A.isolate(ids); const c = M.communities.find(c => c.id === +d.dataset.com); if (c) A.focus(c.core[0], 1.1); });
+    $$("[data-link]", side).forEach(b => b.onclick = () => { const x = M.insights.suggestions[+b.dataset.link]; act({ op: "link", s: x.s_key, o: x.t_key }); });
+    $$("[data-dis]", side).forEach(b => b.onclick = () => { const x = M.insights.suggestions[+b.dataset.dis]; act({ op: "dismiss", s: x.s_key, o: x.t_key }); });
+    $$("[data-merge]", side).forEach(b => b.onclick = () => { const d = M.insights.duplicates[+b.dataset.merge]; act({ op: "merge", keep: +d.keep.id.slice(2), drop: +d.drop.id.slice(2) }); });
+    $$("[data-retract]", side).forEach(b => b.onclick = () => act({ op: "retract", fid: +b.dataset.retract }));
+    const pr = $("#prune", side); if (pr) pr.onclick = () => act({ op: "prune" });
+  };
+  const showNode = async (id) => {
+    if (tab !== "node") { tab = "node"; } drawSide();
+    let d; try { d = await api("/api/atlas/node?id=" + encodeURIComponent(id)); } catch (e) { return; }
+    const box = $("#atnode", side); if (!box) return;
+    const n = d.node, col = AREA_COLORS[(A.byId.get(id) || {}).area] || "var(--accent)";
+    A.isolate([id, ...(A.adj.get(id) || [])]);
+    box.innerHTML = `<div class="atlas-node-head" style="--c:${col}"><span class="chip" style="color:${col};border-color:${col}">${esc(typeLabel({ ...n, id }))}</span><h3>${esc(n.label)}</h3>
+        <div class="atlas-metrics"><div><b>${Math.round((n.pr || 0) * 100)}</b><span>PageRank</span></div><div><b>${Math.round((n.bt || 0) * 100)}</b><span>Betweenness</span></div><div><b>${n.deg || 0}</b><span>Links</span></div><div><b>${(M.communities.find(c => c.id === n.community) || {}).label ? "#" + n.community : "–"}</b><span>Community</span></div></div></div>
+      ${d.memory ? `<div class="atlas-mem"><p>${esc(d.memory.text)}</p><div class="meta">${esc(d.memory.layer)} · ${esc(d.memory.source.replace(/_/g, " "))} · ${Math.round(d.memory.confidence * 100)}% sure · ${when(d.memory.created)}</div>
+        <div class="row" style="margin-top:8px"><button class="ghost sm" id="m-edit">Correct</button><button class="ghost sm" id="m-forget">Forget</button></div></div>` : ""}
+      ${d.goal ? `<div class="atlas-mem"><p>${esc(d.goal.text)}</p><div class="meta">${esc(d.goal.status)}</div>${(d.goal.tasks || []).map(t => `<div class="item"><span class="chip ${t.status === "done" ? "good" : ""}">${esc(t.status)}</span><div class="grow">${esc(t.description)}</div></div>`).join("")}</div>` : ""}
+      ${d.facts && d.facts.length ? `<h4 class="side-h">Facts</h4>${d.facts.map(f => `<div class="item"><div class="grow">${esc(f.s)} <span class="chip accent">${esc(f.p)}</span> ${esc(f.o)}<div class="meta">${esc((f.source || "").replace(/_/g, " "))} · ${Math.round((f.confidence || 0) * 100)}%</div></div>${f.fid ? `<button class="icon-btn" data-retract="${f.fid}" title="Retract">${icon("trash")}</button>` : ""}</div>`).join("")}` : ""}
+      ${d.proofs && d.proofs.length ? `<h4 class="side-h">Derived, with proofs</h4>${d.proofs.map(x => `<div class="item"><div class="grow">${esc(x.fact)}<div class="meta mono">${esc(x.rule || "")}</div><div class="meta">because ${x.support.map(esc).join(" · ")}</div></div><span class="chip violet">${Math.round((x.confidence || 0) * 100)}%</span></div>`).join("")}` : ""}
+      ${d.memories && d.memories.length ? `<h4 class="side-h">Memories (${d.memories.length})</h4>${d.memories.slice(0, 30).map(m => `<div class="item"><div class="grow">${esc(m.text)}<div class="meta">${esc(m.layer)} · ${when(m.created)}</div></div><a href="#" class="icon-btn" data-go="m:${m.id}" title="Show on map">${icon("scan")}</a></div>`).join("")}` : ""}
+      ${d.documents && d.documents.length ? `<h4 class="side-h">In documents</h4>${d.documents.map(x => `<div class="item"><div class="grow mono" style="font-size:12px">${esc(x)}</div></div>`).join("")}` : ""}
+      ${d.timeline && d.timeline.length ? `<h4 class="side-h">Timeline</h4><div class="hist">${d.timeline.slice().reverse().map(e => `<div class="hist-row"><span class="hist-dot"></span><div><div>${esc(e.what)}</div><div class="meta">${when(e.t)}</div></div></div>`).join("")}</div>` : ""}
+      ${d.similar && d.similar.length ? `<h4 class="side-h">Says something similar</h4>${d.similar.map(x => `<div class="item"><div class="grow">${card(x)}</div><span class="chip">${Math.round(x.similarity * 100)}%</span></div>`).join("")}` : ""}
+      <h4 class="side-h">Connected to</h4>${d.neighbours.map(x => `<div class="item"><div class="grow">${card(x)}<div class="meta">${esc(x.type === "entity" ? x.kind : x.type)}</div></div></div>`).join("")}`;
+    $$("[data-go]", box).forEach(a => a.onclick = e => { e.preventDefault(); A.focus(a.dataset.go, 1.6); });
+    $$("[data-retract]", box).forEach(b => b.onclick = () => act({ op: "retract", fid: +b.dataset.retract }));
+    const fg = $("#m-forget", box); if (fg) fg.onclick = () => act({ op: "forget", id: d.memory.id });
+    const ed = $("#m-edit", box); if (ed) ed.onclick = () => { const t = prompt("Correct this memory:", d.memory.text); if (t && t.trim() && t !== d.memory.text) act({ op: "correct", id: d.memory.id, text: t.trim() }); };
+  };
+  // search: type to find, Enter or click to fly there
+  const q = $("#atq", p), res = $("#atr", p);
+  q.oninput = () => {
+    const v = q.value.trim().toLowerCase(); if (!v) { res.hidden = true; A.isolate(null); return; }
+    const hits = A.nodes.filter(n => n.label.toLowerCase().includes(v)).sort((a, b) => (b.type !== "memory") - (a.type !== "memory") || b.pr - a.pr).slice(0, 10);
+    res.hidden = !hits.length;
+    res.innerHTML = hits.map(n => `<button data-go="${esc(n.id)}"><i style="background:${A.color(n)}"></i>${esc(n.label)}<em>${esc(typeLabel(n))}</em></button>`).join("");
+    A.isolate(hits.map(n => n.id).concat("e:user"));
+    $$("[data-go]", res).forEach(b => b.onclick = () => { res.hidden = true; A.focus(b.dataset.go, 1.8); });
+  };
+  q.onkeydown = e => { if (e.key === "Enter") { const b = $("[data-go]", res); if (b) b.click(); } if (e.key === "Escape") { q.value = ""; q.oninput(); } };
+  $("#at-areas", p).onclick = e => { A.mode = "areas"; e.target.classList.add("on"); $("#at-comm", p).classList.remove("on"); };
+  $("#at-comm", p).onclick = e => { A.mode = "communities"; e.target.classList.add("on"); $("#at-areas", p).classList.remove("on"); };
+  $("#at-fit", p).onclick = () => { A.isolate(null); A.sel = null; A.fit(); };
+  $("#at-all", p).onclick = async e => { focus = focus === "me" ? "all" : "me"; e.target.classList.toggle("on", focus === "all"); await load(); };
+  // grow: replay the map from your first memory to today
+  const slider = $("#atslider", p), tl = $("#attime", p);
+  const setT = v => { const s = M.stats; if (!s.first) return; const t = s.first + (s.last - s.first) * v / 1000; A.until = v >= 1000 ? null : t; $("#atdate", p).textContent = when(t); };
+  slider.oninput = () => setT(+slider.value);
+  $("#at-grow", p).onclick = () => {
+    if (!M.stats.first) return toast("Nothing dated yet");
+    tl.hidden = false; let v = 0; clearInterval(S.play);
+    S.play = setInterval(() => { v += 8; slider.value = v; setT(v); if (v >= 1000) clearInterval(S.play); }, 40);
+  };
+  await load();
+};
+
 RENDER.goals = async (p, sel) => {
   const { goals, progress } = await api("/api/goals");
   p.innerHTML = `<div class="page-head"><div class="grow"><h1>Mission control</h1><p>Multi-step goals AETHER runs in the background: an executive plans a task graph, specialist agents run it, a verifier checks every result.</p></div></div>
@@ -932,10 +1083,11 @@ RENDER.lab = async (p) => {
 };
 
 RENDER.self = async (p) => {
-  const [m, props, revs, learn, sug] = await Promise.all([api("/api/metrics"), api("/api/proposals"), api("/api/reviews"), api("/api/learning").catch(() => null), api("/api/suggestions").catch(() => ({ items: [], router: null }))]);
+  const [m, props, revs, learn, sug, rsi] = await Promise.all([api("/api/metrics"), api("/api/proposals"), api("/api/reviews"), api("/api/learning").catch(() => null), api("/api/suggestions").catch(() => ({ items: [], router: null })), api("/api/rsi").catch(() => null)]);
   const bars = (obj) => { const mx = Math.max(1, ...Object.values(obj)); return `<div class="bars">${Object.entries(obj).map(([k, v]) => `<div class="bar"><span>${esc(k || "direct")}</span><span class="track"><i style="width:${v / mx * 100}%"></i></span><span>${v}</span></div>`).join("")}</div>`; };
   const pct = x => x == null ? "–" : Math.round(x * 100) + "%";
   p.innerHTML = `<div class="page-head"><div class="grow"><h1>Self</h1><p>How AETHER has been doing over the last 7 days, and what it would change about itself.</p></div></div>
+    ${rsi ? rsiCard(rsi, props) : ""}
     ${m.turns ? `<div class="grid three" style="margin-bottom:16px">
       <div class="card stat"><b>${(m.latency_ms.median / 1000).toFixed(1)} s</b><span>median reply · p95 ${(m.latency_ms.p95 / 1000).toFixed(1)} s</span></div>
       <div class="card stat"><b>${pct(m.tool_success_rate)}</b><span>tool success · ${m.denied_actions} blocked</span></div>
@@ -960,12 +1112,38 @@ RENDER.self = async (p) => {
         <div class="row"><button class="primary" data-p="${x.id}" data-a="true">Approve</button><button class="ghost" data-p="${x.id}" data-a="false">Decline</button></div></div>`).join("") || `<div class="empty">Nothing to change right now.</div>`}
       ${props.filter(x => x.status !== "proposed").slice(0, 8).map(x => `<div class="item"><div class="grow muted">${esc(x.title)}</div><span class="chip ${x.status === "applied" ? "good" : ""}">${x.status}</span></div>`).join("")}</div>
     <div class="card"><h3>Self-reviews of finished goals</h3>${revs.map(r => `<div class="item"><div class="grow">Goal #${r.goal_id} · ${esc(r.status)}<div class="meta">${esc(r.went_well)} ${r.went_wrong && r.went_wrong !== "nothing" ? "· missed: " + esc(r.went_wrong) : ""}${r.lesson ? "<br>Lesson: " + esc(r.lesson) : ""}</div></div><span class="chip accent">${Math.round(r.score * 100)}%</span></div>`).join("") || `<div class="empty">No finished goals yet.</div>`}</div></div>`;
+  const rr = $("#rsi-run", p); if (rr) rr.onclick = async () => { await api("/api/rsi/run", { method: "POST" }); rr.disabled = true; rr.textContent = "Running…";
+    const wait = setInterval(async () => { const x = await api("/api/rsi").catch(() => null); if (x && !x.running) { clearInterval(wait); toast("Self-improvement", x.cycles[0]?.outcome || "done"); if (location.hash === "#self") RENDER.self(p); } }, 1500); };
   const ln = $("#learn-now", p); if (ln) ln.onclick = async () => { await api("/api/learning/run", { method: "POST" }); toast("Learning", "Going through your corrections and memories now. This page updates when it's done."); setTimeout(() => location.hash === "#self" && RENDER.self(p), 8000); };
   $$("[data-sg]", p).forEach(b => b.onclick = async () => { const r = await api(`/api/suggestions/${b.dataset.sg}`, { method: "POST", body: { accept: !!b.dataset.a } }); toast(r.message); RENDER.self(p); });
   const mn = $("#mine-now", p); if (mn) mn.onclick = async () => { const r = await api("/api/suggestions/refresh", { method: "POST" }); toast(`${r.rules_suggested} rules, ${r.habits_suggested} habits found`); RENDER.self(p); };
   $$("[data-forget]", p).forEach(b => b.onclick = async () => { await api(`/api/learning/lessons/${b.dataset.forget}`, { method: "DELETE" }); RENDER.self(p); });
   $$("[data-p]", p).forEach(b => b.onclick = async () => { try { const r = await api(`/api/proposals/${b.dataset.p}?approve=${b.dataset.a}`, { method: "POST" }); toast(r.message); } catch (e) { toast("Not applied", e.message, "error"); } RENDER.self(p); });
 };
+
+function rsiCard(r, props) {
+  const cyc = r.cycles.slice().reverse().filter(c => c.hold_before != null);
+  const W = 520, H = 90, n = Math.max(2, cyc.length);
+  const vals = cyc.flatMap(c => [c.hold_before, c.hold_after]), lo = Math.max(0, Math.min(...vals, 1) - .03), hi = Math.min(1, Math.max(...vals, 0) + .03);
+  const pt = (v, i) => `${(i / (n - 1)) * W},${H - 6 - (v - lo) / Math.max(.01, hi - lo) * (H - 16)}`;
+  const line = (k) => cyc.map((c, i) => pt(c[k], i)).join(" ");
+  const pending = props.filter(x => x.status === "proposed" && /^Retrieval tune-up/.test(x.title));
+  const arms = Object.entries(r.arms).sort((a, b) => b[1].rate - a[1].rate);
+  const names = { nudge: "Small step", jump: "Random jump", crossover: "Mix winners", revert: "Back to default" };
+  return `<div class="card" style="margin-bottom:16px"><h3><span class="grow">Self-improvement <span class="chip accent">RSI²</span></span><button class="primary sm" id="rsi-run" ${r.running ? "disabled" : ""}>${r.running ? "Running…" : "Run a cycle"}</button></h3>
+    <p class="muted" style="margin:0 0 12px">Level 1: AETHER writes test questions from your own memories, tries changes to how it searches them, and keeps a change only if it also wins on questions it never practised on. Level 2: it learns <i>how</i> to improve, using the strategies that have won more often, adapting its step sizes, spending less effort once it has converged, and drilling the questions it still gets wrong. It runs every night, and nothing changes without your OK.</p>
+    <div class="grid two"><div>
+      ${cyc.length ? `<svg class="rsi-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><polyline points="${line("hold_before")}" fill="none" stroke="var(--faint)" stroke-width="2" stroke-dasharray="4 4"/><polyline points="${line("hold_after")}" fill="none" stroke="var(--accent)" stroke-width="2.5" style="filter:drop-shadow(0 0 6px var(--accent-glow))"/></svg>
+        <div class="meta">Score on unseen questions per cycle (${Math.round(lo * 100)}–${Math.round(hi * 100)}%): <span style="color:var(--accent)">best found</span> vs <span class="faint">current settings</span></div>` : `<div class="empty">No cycles yet. Run one, or let it run tonight.</div>`}
+      ${r.cycles[0] ? `<div class="item"><div class="grow"><b style="font-weight:600">Last cycle:</b> ${esc(r.cycles[0].outcome)}<div class="meta">${r.cycles[0].evaluated} variants on ${r.cycles[0].cases} questions · ${ago(r.cycles[0].t)}${r.cycles[0].winner_op ? ` · best from "${esc(names[r.cycles[0].winner_op] || r.cycles[0].winner_op)}"` : ""}</div></div></div>` : ""}
+      ${pending.map(x => `<div class="item"><div class="grow"><b style="font-weight:600">${esc(x.title)}</b><div class="meta">${esc(x.rationale)}</div></div><div class="row"><button class="primary sm" data-p="${x.id}" data-a="true">Apply</button><button class="ghost sm" data-p="${x.id}" data-a="false">Decline</button></div></div>`).join("")}
+    </div><div>
+      <h4 class="side-h" style="margin-top:0">Which strategies win (level 2)</h4>
+      <div class="rsi-arms">${arms.map(([k, v]) => `<div><b>${Math.round(v.rate * 100)}%</b><span>${esc(names[k] || k)}</span><div class="meta">won ${Math.round(v.wins)} of ${Math.round(v.tries)} (recent)</div></div>`).join("")}</div>
+      <div class="meta" style="margin-top:8px">Budget ${r.budget} variants/cycle · ${r.hard_cases} hard questions weighted up · step sizes ${Object.entries(r.sigma).map(([k, v]) => `${esc(k.replace(/_/g, " "))} ±${v}`).join(", ")}</div>
+      <h4 class="side-h">Safety rails</h4><ul class="rails" style="margin:0;padding-left:18px">${r.rails.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+    </div></div></div>`;
+}
 
 RENDER.activity = async (p) => {
   const [audit, journal] = await Promise.all([api("/api/audit"), api("/api/journal")]);
@@ -984,19 +1162,21 @@ RENDER.settings = async (p) => {
                    ["context", "topic_switch_threshold", "Topic switch sensitivity", .02, .4, .01, c.context.topic_switch_threshold]];
   const tog = (id, on, label, note) => `<div class="item"><button class="switch ${on ? "on" : ""}" id="${id}"></button><div class="grow">${label}<div class="meta">${note}</div></div></div>`;
   p.innerHTML = `<div class="page-head"><div class="grow"><h1>Settings</h1><p>Safe settings can be changed here. Security and folders live in aether.toml on purpose.</p></div></div>
+    <div class="notice" data-user-only style="margin-bottom:14px">Model, behaviour, security and tool settings are in Admin mode. Turn it on below or press Ctrl+Shift+D.</div>
     <div class="grid two">
       <div class="card"><h3>Appearance and voice</h3>
-        ${tog("s-theme", S.theme === "light", "Light theme", "Dark is the default")}
+        <div class="theme-pick">${[["dark", "Vision", "linear-gradient(90deg,#ff2fb3,#ff3352,#ffd23f)"], ["arc", "Arc", "linear-gradient(90deg,#36d6ff,#7fe9ff,#ffb347)"], ["light", "Light", "linear-gradient(90deg,#eef4f8,#0086b3)"]].map(([k, l, g]) => `<button data-theme-pick="${k}" class="${S.theme === k ? "on" : ""}"><i style="background:${g}"></i>${l}</button>`).join("")}</div>
+        ${tog("s-admin", S.mode === "admin", "Admin mode", "Shows traces, the thinking panel, Lab, Self, Activity and raw settings (Ctrl+Shift+D)")}
         ${tog("s-speak", S.autoSpeak, "Read replies aloud", c.voice.tts ? "Uses your Piper voice" : "Set [voice].tts_voice_path first")}
-        ${tog("s-mind", S.showMind, "Show the thinking panel in chat", "Live pipeline, facts, tools")}
+        <div data-admin>${tog("s-mind", S.showMind, "Show the thinking panel in chat", "Live pipeline, facts, tools")}</div>
         ${tog("s-notif", window.Notification && Notification.permission === "granted", "Desktop notifications", "For reminders and approvals while AETHER is in the background")}</div>
-      <div class="card"><h3>Behaviour</h3>${sliders.map(([sec, key, label, mn, mx, st, v]) => `<div style="padding:8px 0"><div class="kv"><span>${label}</span><span class="mono" id="v-${key}">${v}</span></div>
+      <div class="card" data-admin><h3>Behaviour</h3>${sliders.map(([sec, key, label, mn, mx, st, v]) => `<div style="padding:8px 0"><div class="kv"><span>${label}</span><span class="mono" id="v-${key}">${v}</span></div>
         <input type="range" min="${mn}" max="${mx}" step="${st}" value="${v}" data-sec="${sec}" data-key="${key}" style="width:100%;accent-color:var(--accent)"></div>`).join("")}
         <p class="muted" style="font-size:12px">Changes are saved as learned overrides and can be reverted in the Lab.</p></div>
-      <div class="card"><h3>Model</h3><div class="kv"><span>File</span><span class="mono">${esc(c.model || "not set")}</span></div><div class="kv"><span>GPU layers</span><span>${c.gpu_layers}</span></div>
+      <div class="card" data-admin><h3>Model</h3><div class="kv"><span>File</span><span class="mono">${esc(c.model || "not set")}</span></div><div class="kv"><span>GPU layers</span><span>${c.gpu_layers}</span></div>
         <div class="kv"><span>Context</span><span>${c.context_tokens} tokens</span></div><div class="kv"><span>Speech-to-text</span><span>${esc(c.voice.stt_model)}</span></div><div class="kv"><span>Vision</span><span>${c.vision ? "configured" : "not set"}</span></div>
         <p class="muted" style="font-size:12px">Change these in aether.toml, then restart. scripts\\tune_gpu.py finds the fastest GPU layer count.</p></div>
-      <div class="card"><h3>Security</h3>
+      <div class="card" data-admin><h3>Security</h3>
         <div class="kv"><span>Encryption at rest</span><span class="${c.security.encrypt_at_rest ? "good" : "warn"}">${c.security.encrypt_at_rest ? "on" : "off"}</span></div>
         <div class="kv"><span>Web research</span><span>${c.security.network ? "on" : "off"}</span></div>
         <div class="kv"><span>Screen reading</span><span>${c.security.screen_access ? "on (asks)" : "off"}</span></div>
@@ -1006,13 +1186,14 @@ RENDER.settings = async (p) => {
         <div class="kv"><span>Morning brief</span><span>${c.proactive.morning_brief || "off"}</span></div><div class="kv"><span>Max per hour</span><span>${c.proactive.max_per_hour}</span></div>
         ${tog("s-focus", c.proactive.focus_break_minutes > 0, "Break after long focus", `Suggests a break after ${c.proactive.focus_break_minutes || 90} min at the keyboard`)}
         ${tog("s-deadlines", c.proactive.deadline_nudges, "Early deadline nudges", "Calendar, reminders and documents, 7, 3 and 1 days before")}</div>
-      <div class="card"><h3>Tools (${c.tools.length})</h3>${c.tools.map(t => `<div class="item"><div class="grow"><span class="mono" style="font-size:12.5px">${esc(t.name)}</span><div class="meta">${esc(t.description)}</div></div><span class="chip">${esc(t.category)}</span></div>`).join("")}</div>
+      <div class="card" data-admin><h3>Tools (${c.tools.length})</h3>${c.tools.map(t => `<div class="item"><div class="grow"><span class="mono" style="font-size:12.5px">${esc(t.name)}</span><div class="meta">${esc(t.description)}</div></div><span class="chip">${esc(t.category)}</span></div>`).join("")}</div>
       <div class="card"><h3>Keyboard</h3>${[["Ctrl K", "Command palette"], ["Ctrl 1-8", "Switch views"], ["Ctrl N", "New chat"], ["Ctrl .", "Toggle thinking panel"], ["Ctrl Shift V", "Talk"], ["Ctrl Shift X", "Emergency stop"], ["/", "Focus the message box"]].map(([k, d]) => `<div class="kv"><span>${d}</span><span><kbd>${k}</kbd></span></div>`).join("")}</div>
     </div>`;
   const aware = async (values, label) => { try { await api("/api/settings", { method: "POST", body: { section: "proactive", values, reason: "set in Settings" } }); toast("Saved", label); } catch (e) { toast("Couldn't save", e.message, "error"); } RENDER.settings(p); };
   $("#s-focus", p).onclick = () => aware({ focus_break_minutes: c.proactive.focus_break_minutes > 0 ? 0 : 90 }, c.proactive.focus_break_minutes > 0 ? "Break reminders off" : "Break reminders on (90 min)");
   $("#s-deadlines", p).onclick = () => aware({ deadline_nudges: !c.proactive.deadline_nudges }, c.proactive.deadline_nudges ? "Deadline nudges off" : "Deadline nudges on");
-  $("#s-theme", p).onclick = e => { S.theme = S.theme === "light" ? "dark" : "light"; store.set("theme", S.theme); document.documentElement.dataset.theme = S.theme; e.target.classList.toggle("on"); };
+  $$("[data-theme-pick]", p).forEach(b => b.onclick = () => { setTheme(b.dataset.themePick); $$("[data-theme-pick]", p).forEach(x => x.classList.toggle("on", x === b)); });
+  $("#s-admin", p).onclick = () => { setMode(S.mode === "admin" ? "user" : "admin"); RENDER.settings(p); };
   $("#s-speak", p).onclick = e => { S.autoSpeak = !S.autoSpeak; store.set("autoSpeak", S.autoSpeak); e.target.classList.toggle("on"); };
   $("#s-mind", p).onclick = e => { S.showMind = !S.showMind; store.set("showMind", S.showMind); e.target.classList.toggle("on"); if (Chat.root) Chat.applyLayout(); };
   $("#s-notif", p).onclick = async e => { if (!window.Notification) return toast("Notifications not supported here"); const r = await Notification.requestPermission(); e.target.classList.toggle("on", r === "granted"); };
@@ -1044,7 +1225,10 @@ const COMMANDS = [
   ["Inspect the last turn", "Glass-box trace: timeline, retrieval, proofs, verification", "scan", () => Inspector.open()],
   ["Toggle thinking panel", "Show or hide the live pipeline", "panel", () => { S.showMind = !S.showMind; store.set("showMind", S.showMind); Chat.root && Chat.applyLayout(); }],
   ["Talk", "Push to talk (click the mic again to stop)", "mic", () => { go("chat"); Chat.toggleMic?.(); }],
-  ["Toggle theme", "Light or dark", "sun", () => { S.theme = S.theme === "light" ? "dark" : "light"; store.set("theme", S.theme); document.documentElement.dataset.theme = S.theme; }],
+  ["Toggle theme", "Vision, Arc or light", "sun", () => setTheme({ dark: "arc", arc: "light" }[S.theme] || "dark")],
+  ["Toggle admin mode", "Show or hide developer panels (Ctrl+Shift+D)", "lock", () => setMode(S.mode === "admin" ? "user" : "admin")],
+  ["Open the memory map", "Everything AETHER knows about you, as a graph", "graph", () => go("map")],
+  ["Improve yourself", "Run one self-improvement cycle now", "pulse", async () => { await api("/api/rsi/run", { method: "POST" }); toast("Self-improvement", "Running a cycle. See Self when it's done."); }],
   ["Emergency stop", "Block every computer action", "stop", () => $("#stop").click()],
   ["Undo last file change", "", "trash", async () => toast((await api("/api/undo", { method: "POST" })).message)],
   ["Look for new patterns about me", "", "brain", async () => { const r = await api("/api/observations/analyse", { method: "POST" }); toast(r.proposed.length ? `${r.proposed.length} new pattern(s)` : "No new patterns"); }],
@@ -1094,13 +1278,14 @@ document.addEventListener("keydown", e => {
   if (HUD.el) return;  // the HUD owns the keyboard while it is open
   if (e.key === "Escape") { if (!$("#palette").hidden) Palette.close(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "h") { e.preventDefault(); HUD.open(); return; }
+  if (mod && e.shiftKey && e.key.toLowerCase() === "d") { e.preventDefault(); setMode(S.mode === "admin" ? "user" : "admin"); toast(S.mode === "admin" ? "Admin mode" : "User mode", S.mode === "admin" ? "Traces, Lab, Self, Activity and raw settings are visible." : "Developer panels are hidden."); return; }
   if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); $("#palette").hidden ? Palette.open() : Palette.close(); }
   else if (mod && e.shiftKey && e.key.toLowerCase() === "x") { e.preventDefault(); $("#stop").click(); }
   else if (mod && e.shiftKey && e.key.toLowerCase() === "v") { e.preventDefault(); go("chat"); Chat.toggleMic?.(); }
   else if (mod && e.key.toLowerCase() === "n") { e.preventDefault(); go("chat"); Chat.newChat(); }
   else if (mod && e.key === ".") { e.preventDefault(); S.showMind = !S.showMind; store.set("showMind", S.showMind); Chat.root && Chat.applyLayout(); }
   else if (mod && e.key === ",") { e.preventDefault(); go("settings"); }
-  else if (mod && /^[1-9]$/.test(e.key)) { e.preventDefault(); go(Object.keys(VIEWS)[+e.key - 1]); }
+  else if (mod && /^[1-9]$/.test(e.key)) { e.preventDefault(); const vis = $$("#rail button[data-view]").filter(b => b.offsetParent !== null).map(b => b.dataset.view); go(vis[+e.key - 1]); }
   else if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); go("chat"); Chat.t.focus(); }
 });
 window.addEventListener("hashchange", () => { const v = location.hash.slice(1); if (v && v !== S.view) go(v); });
@@ -1134,6 +1319,8 @@ Live.start();
 Inspector.init(api);
 HUD.init({ api, streamChat, onTurn: () => { refreshStatus(); Chat.root && Chat.loadConvos(); } });
 $("#hud-btn").onclick = () => HUD.open();
+$("#mode-chip").onclick = () => { setMode(S.mode === "admin" ? "user" : "admin"); if (S.view === "settings") go("settings"); };
+setMode(S.mode);
 if (new URLSearchParams(location.search).has("hud")) {  // the tray's global hotkey / "Morning briefing" menu item
   const brief = new URLSearchParams(location.search).get("hud") === "brief";
   history.replaceState(null, "", "/" + location.hash); HUD.open(); if (brief) HUD.ask("good morning");

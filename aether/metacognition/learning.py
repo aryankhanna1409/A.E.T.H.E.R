@@ -202,7 +202,8 @@ class Learner:
             out["merged"] = self._merge_duplicates()
             for name, attr, step in (("router", "intent_model", lambda: self.a.intent_model.train()),
                                      ("suggestions", "suggestions", lambda: self.a.suggestions.refresh()),
-                                     ("reranker", "mem_ranker", lambda: self.a.mem_ranker.train())):
+                                     ("reranker", "mem_ranker", lambda: self.a.mem_ranker.train()),
+                                     ("self_improvement", "rsi", lambda: self.a.rsi.cycle("night")["outcome"])):
                 try:   # the learned router re-indexes; new rules and habits are mined and wait for your OK; the
                     # memory reranker relearns which memories actually help
                     if hasattr(self.a, attr):

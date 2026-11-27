@@ -1,6 +1,10 @@
 """Fill AETHER from a seed pack: memories, knowledge graph, rules, preferences, patterns, goals and test cases.
 
     .\\.venv\\Scripts\\python scripts\\import_seed_pack.py my_seed_pack.json
+    .\\.venv\\Scripts\\python scripts\\import_seed_pack.py my_seed_pack.json --yes --only-me
+
+--only-me also retires facts that have nothing to do with you (demo worlds, test data), so the memory map and the
+Knowledge view show only your world. Retired facts stay in the belief history.
 
 Quit AETHER first (tray icon > Quit), then start it again afterwards. The format is described in
 aether/memory/seedpack.py. Everything added is marked as seeded, and running it twice adds nothing new.
@@ -20,6 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("pack", help="seed pack .json")
     ap.add_argument("--config", help="path to aether.toml")
     ap.add_argument("--yes", action="store_true", help="don't ask before saving")
+    ap.add_argument("--only-me", action="store_true", help="also retire facts not connected to you (demo/test data)")
     args = ap.parse_args(argv)
 
     from aether.cognition.orchestrator import Aether
@@ -47,7 +52,13 @@ def main(argv: list[str] | None = None) -> int:
     print("\nAdded: " + ", ".join(added) + "." if added else "\nNothing new: AETHER already has everything in this pack.")
     if out["skipped"]:
         print(f"Skipped {out['skipped']} item(s) that were already there or looked unsafe.")
-    print("Start AETHER again (start.bat) and look at Memory, Knowledge, Goals and Lab.")
+    if args.only_me:
+        print(aether.atlas.act("prune", {})["message"])
+    m = aether.atlas.build()
+    s = m["stats"]
+    print(f"Memory map: {s['nodes']} nodes in {s['communities']} communities across {len(s['areas'])} areas"
+          + (f" ({s['hidden']} unrelated nodes hidden)" if s.get("hidden") else "") + ".")
+    print("Start AETHER again (start.bat) and open Map, Memory, Today and Goals.")
     return 0
 
 

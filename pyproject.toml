@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aether"
-version = "29.0.0"
+version = "30.0.0"
 description = "AETHER: Adaptive Engine for Thought, Heuristics, Evolution & Reasoning. A fully local, neuro-symbolic personal assistant."
 authors = [{ name = "Aryan" }]
 requires-python = ">=3.11"

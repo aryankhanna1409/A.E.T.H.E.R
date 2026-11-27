@@ -3,33 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#02060b">
+<meta name="theme-color" content="#07020c">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>AETHER</title>
 <style>
-:root { --bg: #02060b; --panel: #07111a; --line: #12293a; --text: #d9f4ff; --muted: #7393a8; --faint: #3c566a;
-        --accent: #36d6ff; --amber: #ffb347; --good: #3ee6a0; --bad: #ff5470;
+:root { --bg: #07020c; --panel: #12061b; --line: #2a1238; --text: #fdeeff; --muted: #7393a8; --faint: #3c566a;
+        --accent: #ff2fb3; --amber: #ffd23f; --good: #3ee6a0; --bad: #ff5470;
         --mono: "Cascadia Code", ui-monospace, "SF Mono", Menlo, monospace; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
              font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 body { display: flex; flex-direction: column; padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
-       background: radial-gradient(500px 360px at 50% 30%, rgba(54, 214, 255, .10), transparent 70%), var(--bg); }
+       background: radial-gradient(500px 360px at 50% 30%, rgba(255, 47, 179, .10), transparent 70%), var(--bg); }
 header { display: flex; justify-content: space-between; align-items: center; padding: 14px 0 6px;
          font: 600 12px var(--mono); letter-spacing: .3em; color: var(--accent); }
 header small { letter-spacing: .15em; color: var(--muted); }
 #log { flex: 1; overflow-y: auto; padding: 8px 0 16px; display: flex; flex-direction: column; gap: 10px; }
 .msg { max-width: 88%; padding: 10px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); white-space: pre-wrap; word-wrap: break-word; }
-.me { align-self: flex-end; border-color: rgba(54, 214, 255, .35); background: rgba(54, 214, 255, .08); }
+.me { align-self: flex-end; border-color: rgba(255, 47, 179, .35); background: rgba(255, 47, 179, .08); }
 .ai { align-self: flex-start; }
 .ai::before { content: "AETHER"; display: block; font: 600 10px var(--mono); letter-spacing: .25em; color: var(--accent); margin-bottom: 4px; }
 #state { text-align: center; font: 12px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); min-height: 18px; }
 #partial { text-align: center; color: var(--muted); font-style: italic; min-height: 22px; padding: 0 8px; }
 #mic { position: relative; width: 132px; height: 132px; margin: 10px auto 12px; border-radius: 50%; border: 0; cursor: pointer;
-       background: radial-gradient(circle at 50% 45%, rgba(54, 214, 255, .35), rgba(54, 214, 255, .05) 60%, transparent 70%);
-       box-shadow: 0 0 0 2px rgba(54, 214, 255, .5), 0 0 40px rgba(54, 214, 255, .25) inset; touch-action: none; user-select: none; -webkit-user-select: none; }
+       background: radial-gradient(circle at 50% 45%, rgba(255, 47, 179, .35), rgba(255, 47, 179, .05) 60%, transparent 70%);
+       box-shadow: 0 0 0 2px rgba(255, 47, 179, .5), 0 0 40px rgba(255, 47, 179, .25) inset; touch-action: none; user-select: none; -webkit-user-select: none; }
 #mic::after { content: ""; position: absolute; inset: 38px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 30px var(--accent); transition: transform .15s; }
-#mic.rec { box-shadow: 0 0 0 2px var(--amber), 0 0 60px rgba(255, 179, 71, .35) inset; }
+#mic.rec { box-shadow: 0 0 0 2px var(--amber), 0 0 60px rgba(255, 210, 63, .35) inset; }
 #mic.rec::after { background: var(--amber); box-shadow: 0 0 30px var(--amber); transform: scale(1.15); }
 #mic.busy::after { animation: pulse .8s ease-in-out infinite; }
 @keyframes pulse { 50% { transform: scale(.8); opacity: .6; } }
@@ -37,7 +37,7 @@ header small { letter-spacing: .15em; color: var(--muted); }
 form { display: flex; gap: 8px; padding-bottom: 14px; }
 input { flex: 1; min-width: 0; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; }
 input:focus { outline: none; border-color: var(--accent); }
-button.send { padding: 0 16px; border-radius: 12px; border: 1px solid rgba(54, 214, 255, .5); background: rgba(54, 214, 255, .12); color: var(--accent); font-weight: 600; }
+button.send { padding: 0 16px; border-radius: 12px; border: 1px solid rgba(255, 47, 179, .5); background: rgba(255, 47, 179, .12); color: var(--accent); font-weight: 600; }
 </style>
 </head>
 <body>

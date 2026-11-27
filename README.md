@@ -1,4 +1,4 @@
-# AETHER · Mark XXIX
+# AETHER · Mark XXX
 
 **Adaptive Engine for Thought, Heuristics, Evolution & Reasoning**: a fully local, neuro-symbolic personal assistant for Windows 11.
 
@@ -52,6 +52,28 @@ Most assistants are a black box. AETHER records everything it does and lets you 
 | Listening | Answering |
 | --- | --- |
 | ![HUD listening](docs/screenshots/hud-listen.png) | ![HUD answer](docs/screenshots/hud-answer.png) |
+
+## New in Mark XXX
+
+* **Memory map.** One glowing, force-directed graph of everything AETHER knows, centred on you: people, projects, places, memories, documents and goals, filed into the areas of your life (who you are, people, health, study, career, projects, goals, your preferences, how AETHER should work). It's real graph analysis, not decoration:
+  * Louvain communities with a modularity score.
+  * PageRank and betweenness, used to find the *god nodes* that hold your world together and the *bridges* between areas.
+  * *Surprising connections* across communities.
+  * *Suggested links* between things that share a lot of context (Adamic-Adar). Accept one and it becomes a fact.
+  * A **Fix** tab: merge near-duplicate memories, retract weak inferred facts, find orphans and topics with no facts. Every change is logged.
+
+  Search flies the camera to any node. Click a node to see its memories, facts, rule proofs and timeline. **Grow** replays how your map built up over time. Anything not connected to you (demo worlds, test data) is hidden, and `scripts\import_seed_pack.py <pack> --only-me` retires it. You can also ask in chat: "show my memory map".
+* **Recursive self-improvement, two levels, approval-gated.**
+  * Level 1: every night AETHER writes test questions from your own memories and tries changes to its retrieval settings. It keeps a change only if it wins on questions it never practised on, and then asks you.
+  * Level 2 (RSI²) improves the improver:
+    * Thompson sampling over its strategies (small step, random jump, mixing past winners, back to default).
+    * The 1/5 success rule on each step size.
+    * A budget that shrinks once it has converged.
+    * A curriculum that weights the questions it still gets wrong.
+  * The rails are fixed in code: tunable settings only, within hard bounds, never security, tools or code, and every change can be reverted. See it under Self, or say "improve yourself".
+* **Vision.** A brighter look: violet-black with synthetic-life magenta, solar gold and crimson glow. Arc (Mark XXIX cyan) and Light are one click away in Settings.
+* **User and Admin modes.** User mode shows only what you use day to day: Chat, Today, Grind 75, Memory, Map and Goals. Admin mode (`Ctrl Shift D`, or the chip next to the title) adds the thinking panel, turn traces, Knowledge, Lab, Self, Activity and raw model, security and tool settings.
+* **Updates always show.** The page stamps its scripts with the code version, and static files are always revalidated, so a browser cache can't hide a new release.
 
 ## New in Mark XXIX
 
