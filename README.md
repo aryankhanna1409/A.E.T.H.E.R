@@ -1,10 +1,56 @@
-# AETHER · Mark XXX
+<div align="center">
 
-**Adaptive Engine for Thought, Heuristics, Evolution & Reasoning**: a fully local, neuro-symbolic personal assistant for Windows 11.
+<a href="docs/media/hi_im_aether.mp4"><img src="docs/brand/hero.gif" alt="AETHER, Mark XXX. Local. Private. One word away." width="100%"></a>
 
-**New here? [Download and run it on your laptop, step by step →](docs/GETTING_STARTED.md)**
+<h1>AETHER · Mark XXX</h1>
+
+<p><b>Adaptive Engine for Thought, Heuristics, Evolution &amp; Reasoning</b><br>
+a fully local, neuro-symbolic personal assistant for Windows 11</p>
+
+<p>
+<img src="https://img.shields.io/badge/MARK-XXX-f5c542?style=for-the-badge&amp;labelColor=0a040e" alt="Mark XXX">
+<img src="https://img.shields.io/badge/RUNS-100%25%20LOCAL-4ade80?style=for-the-badge&amp;labelColor=0a040e" alt="Runs 100% local">
+<img src="https://img.shields.io/badge/CLOUD-NONE-ff2fa0?style=for-the-badge&amp;labelColor=0a040e" alt="No cloud">
+<img src="https://img.shields.io/badge/WINDOWS-11-22d3ee?style=for-the-badge&amp;labelColor=0a040e" alt="Windows 11">
+<img src="https://img.shields.io/badge/GPU-4%20GB%20VRAM-a855f7?style=for-the-badge&amp;labelColor=0a040e" alt="4 GB VRAM">
+</p>
+
+<p>
+<a href="docs/GETTING_STARTED.md"><b>Get started</b></a> ·
+<a href="docs/media/hi_im_aether.mp4"><b>Watch “Hi, I’m AETHER”</b></a> ·
+<a href="docs/ARCHITECTURE.md"><b>Architecture</b></a> ·
+<a href="docs/SECURITY.md"><b>Security</b></a> ·
+<a href="docs/CI_CD.md"><b>CI/CD</b></a>
+</p>
+
+</div>
+
+<img src="docs/brand/divider.svg" width="100%" alt="">
+
+> **New here?** [Download and run it on your laptop, step by step →](docs/GETTING_STARTED.md)
 
 No cloud APIs. No Ollama. The language model runs **in-process** through `llama-cpp-python` (GGUF weights on your disk). Embeddings, speech, vision and memory are local too, and your memories live in one encrypted SQLite file on your machine. The only network use is optional web research, which you can switch off.
+
+## Meet AETHER
+
+AETHER introduces itself in a three-minute film: you ask the questions, it answers in its own voice. **[Watch “Hi, I’m AETHER” →](docs/media/hi_im_aether.mp4)**
+
+<table>
+<tr>
+<td width="50%"><img src="docs/brand/scene_who.jpg" alt="Neural model reads intent, symbolic engine checks and proves"><br><b>Neuro-symbolic.</b> The model reads what you mean and turns it into a typed intent. A knowledge graph, rules and proofs check, decide and prove.</td>
+<td width="50%"><img src="docs/brand/scene_where.jpg" alt="Runs on one laptop: Qwen2.5-7B, 20 of 28 layers on a 4 GB GPU"><br><b>One laptop.</b> Qwen2.5-7B at 4-bit, 20 of 28 layers on a 4 GB GPU, speech on the CPU. Encrypted at rest, and nothing leaves the machine.</td>
+</tr>
+<tr>
+<td><img src="docs/brand/scene_think.jpg" alt="Perceive, interpret, retrieve, reason, verify, with a timed trace"><br><b>Shows its work.</b> Perceive, interpret, retrieve, reason, verify. Claims are checked against what it knows, and every stage is timed and traced.</td>
+<td><img src="docs/brand/scene_memory.jpg" alt="Memory map with seven memory layers and belief history"><br><b>Remembers, and keeps history.</b> Seven memory layers on a knowledge graph. Every fact has a source and a time; changed beliefs stay replayable.</td>
+</tr>
+<tr>
+<td><img src="docs/brand/scene_act.jpg" alt="49 tools, risk levels, allow box, undo and emergency stop"><br><b>Acts, safely.</b> 49 tools behind one policy engine with risk levels 1 to 5. Risky actions wait for your Allow; deletes can be undone; “stop everything” stops everything.</td>
+<td><img src="docs/brand/scene_better.jpg" alt="RSI squared self-improvement chart and strategy win rates"><br><b>Gets better every night.</b> RSI²: it tests changes on questions it never practised, learns which ways of improving win, and changes nothing without your OK.</td>
+</tr>
+</table>
+
+<img src="docs/brand/divider.svg" width="100%" alt="">
 
 ## What it does
 
@@ -26,6 +72,9 @@ No cloud APIs. No Ollama. The language model runs **in-process** through `llama-
 | Security | Policy engine on every action, secrets denylist, prompt-injection tripwire with taint mode, encryption at rest (DPAPI-protected key), audit log, emergency stop |
 
 ![How a turn flows through AETHER](docs/architecture.svg)
+
+
+<img src="docs/brand/divider.svg" width="100%" alt="">
 
 ## See inside it
 
@@ -160,6 +209,9 @@ One name everywhere: he's **AETHER**, and the little orb on your desktop is **No
 | --- | --- |
 | ![HUD briefing](docs/screenshots/hud-briefing.png) | ![Briefing card](docs/screenshots/briefing.png) |
 
+
+<img src="docs/brand/divider.svg" width="100%" alt="">
+
 ## The app
 
 ![Chat with the live thinking pipeline](docs/screenshots/chat.png)
@@ -176,6 +228,9 @@ One name everywhere: he's **AETHER**, and the little orb on your desktop is **No
 | Knowledge map | Light theme |
 | --- | --- |
 | ![Knowledge graph](docs/screenshots/knowledge.png) | ![Light theme](docs/screenshots/light.png) |
+
+
+<img src="docs/brand/divider.svg" width="100%" alt="">
 
 ## Setup on Windows 11 (HP Victus 15 defaults)
 
@@ -230,6 +285,9 @@ Structured outputs are enforced with a JSON grammar, so even small models return
 ## Continuous integration
 
 Every push and pull request is linted and tested by Jenkins, which runs on AWS EC2 and is set up entirely as code (Terraform, Docker Compose, Jenkins Configuration as Code). On `main` a Windows agent builds the installer, and each new Mark is published as a GitHub release with the installer attached. The pipeline is in [`Jenkinsfile`](Jenkinsfile), and [docs/CI_CD.md](docs/CI_CD.md) covers how it works and how to set it up.
+
+
+<img src="docs/brand/divider.svg" width="100%" alt="">
 
 ## Safety model
 
